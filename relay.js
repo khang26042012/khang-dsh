@@ -269,23 +269,7 @@ function killOrphans(markers) {
     }
   } catch(e) {}
 }
-function startLava() {
-  killOrphans(['Lavalink.jar']);
-  const jar = path.join(LAVA_DIR, 'Lavalink.jar');
-  const jre = path.join(LAVA_DIR, 'jre/bin/java');
-  const yml = path.join(LAVA_DIR, 'application.yml');
-  if (!fs.existsSync(jar) || !fs.existsSync(yml)) { log('LAVALINK DORMANT - chua co jar/yml'); return; }
-  const bin = fs.existsSync(jre) ? jre : 'java';
-  const p = spawn(bin, ['-Xms128M','-Xmx640M','-jar', jar, '--server.port=26014', '--server.address=127.0.0.1'], { cwd: LAVA_DIR, stdio: ['ignore','inherit','inherit'] });
-  lavaChild = p;
-  log('LAVALINK start pid=' + p.pid + ' bin=' + bin);
-  p.on('exit', (code, sig) => {
-    if (lavaChild !== p) return;
-    log('LAVALINK EXIT code=' + code + ' sig=' + sig + ' -> respawn 20s');
-    lavaRestarts++;
-    setTimeout(() => { if (lavaChild === p || lavaChild === null) startLava(); }, 20000);
-  });
-}
+function startLava() { /* TINH NANG NHAC DA GO BO theo yeu chu - 2026/08/24 */ }
 
 // ---- BOOT SEQUENCE ----
 (async () => {
@@ -298,7 +282,7 @@ function startLava() {
   try { bootVer = fs.readFileSync(path.join(__dirname, LOCAL_VER_FILE), 'utf8').trim() || '?'; } catch(e){}
   startChild(bootVer);
   await pullLatest(false);
-  startLava();
+  // startLava da bo (tinh nang nhac duoc go bo)
   setTimeout(startBot, 8000);
 })();
 setInterval(() => pullLatest(false), 5 * 60 * 1000);   // auto pull moi 5 phut
