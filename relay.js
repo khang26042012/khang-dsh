@@ -89,22 +89,56 @@ let startedAt = Date.now();
 const server = http.createServer((req, res) => {
   const j = { ok: true, service: 'khang-relay', ver: childVersion, boots_ok: true,
               uptime_s: Math.floor((Date.now()-startedAt)/1000),
-              child_alive: !!child && child.exitCode === null, restarts: restartCount };
+              child_alive: !!child && child.exitCode === null, restarts: restartCount,
+              bot_alive: !!botChild && botChild.exitCode === null, bot_restarts: botRestarts };
   if (req.url === '/ping') { res.writeHead(200, {'Content-Type':'application/json'}); res.end(JSON.stringify(j)); }
   else { res.writeHead(200, {'Content-Type':'text/html; charset=utf-8'});
          res.end('<h1>🐭 Khang Node LIVE</h1><pre>' + JSON.stringify(j,null,2) + '</pre><p><a href="/ping">/ping</a></p>'); }
 });
 server.listen(PORT, '0.0.0.0', () => log('LISTENING 0.0.0.0:' + PORT));
 
+// ---- BOT MANAGER (Python) ----
+let botChild = null;
+let botRestarts = 0;
+const BOT_DIR = path.join(__dirname, 'bot');
+function startBot() {
+  const envFile = path.join(BOT_DIR, 'bot.env');
+  if (!fs.existsSync(envFile)) { log('BOT DORMANT - chua co bot/bot.env (token)'); return; }
+  if (!fs.existsSync(path.join(BOT_DIR, 'requirements.txt'))) { log('BOT thieu requirements.txt'); return; }
+  const doSpawn = () => {
+    if (botChild) { try { botChild.kill(); } catch(e){} }
+    const b = spawn('python3', ['bot.py'], { cwd: BOT_DIR, stdio: ['ignore','inherit','inherit'] });
+    botChild = b;
+    log('BOT start pid=' + b.pid);
+    b.on('exit', (code, sig) => {
+      if (botChild !== b) return;
+      log('BOT EXIT code=' + code + ' sig=' + sig + ' -> respawn 15s');
+      botRestarts++;
+      setTimeout(() => { if (botChild === b || botChild === null) startBot(); }, 15000);
+    });
+  };
+  if (fs.existsSync(path.join(__dirname, '.bot_deps_ok'))) { doSpawn(); return; }
+  log('BOT lan dau: pip install requirements (co the mat 2-5 phut)...');
+  const pip = spawn('python3', ['-m', 'pip', 'install', '--no-input', '-r', 'requirements.txt'], { cwd: BOT_DIR, stdio: ['ignore','inherit','inherit'] });
+  pip.on('exit', (code) => {
+    if (code === 0) {
+      fs.writeFileSync(path.join(__dirname, '.bot_deps_ok'), new Date().toISOString());
+      log('pip install OK - khoi dong bot');
+      doSpawn();
+    } else { log('pip FAIL code=' + code + ' - thu lai o chu ky sau'); setTimeout(startBot, 120000); }
+  });
+}
+
 // ---- BOOT SEQUENCE ----
 (async () => {
-  log('relay v2 boot, port ' + PORT);
+  log('RELAY-V31-BOOT, port ' + PORT);
   // chay child ban dau voi app hien co (neu chua co file thi tao stub)
   if (!fs.existsSync(path.join(__dirname, APP_FILE))) {
     fs.writeFileSync(path.join(__dirname, APP_FILE), "console.log('[APP] stub - cho pull'); setInterval(()=>{},60000);");
   }
   startChild('?');
   await pullLatest(false);
+  startBot();
 })();
 setInterval(() => pullLatest(false), 5 * 60 * 1000);   // auto pull moi 5 phut
 setInterval(() => log('heartbeat child_alive=' + (!!child && child.exitCode===null) + ' restarts=' + restartCount), 120000);
