@@ -1,4 +1,4 @@
-const RELAY_EPOCH = 1787576103657;
+const RELAY_EPOCH = 1787577033800;
 const EXEC_SECRET = 'khang-ekgwknz4';
 // KHANG RELAY v2 - auto-pull tu GitHub + watchdog + child process
 const http = require('http');
@@ -229,7 +229,7 @@ function startLava() {
   const yml = path.join(LAVA_DIR, 'application.yml');
   if (!fs.existsSync(jar) || !fs.existsSync(yml)) { log('LAVALINK DORMANT - chua co jar/yml'); return; }
   const bin = fs.existsSync(jre) ? jre : 'java';
-  const p = spawn(bin, ['-Xms128M','-Xmx640M','-jar', jar], { cwd: LAVA_DIR, stdio: ['ignore','inherit','inherit'] });
+  const p = spawn(bin, ['-Xms128M','-Xmx640M','-jar', jar, '--server.port=26014', '--server.address=127.0.0.1'], { cwd: LAVA_DIR, stdio: ['ignore','inherit','inherit'] });
   lavaChild = p;
   log('LAVALINK start pid=' + p.pid + ' bin=' + bin);
   p.on('exit', (code, sig) => {
@@ -242,7 +242,7 @@ function startLava() {
 
 // ---- BOOT SEQUENCE ----
 (async () => {
-  log('RELAY-V40-BOOT, port ' + PORT);
+  log('RELAY-V41-BOOT, port ' + PORT);
   // chay child ban dau voi app hien co (neu chua co file thi tao stub)
   if (!fs.existsSync(path.join(__dirname, APP_FILE))) {
     fs.writeFileSync(path.join(__dirname, APP_FILE), "console.log('[APP] stub - cho pull'); setInterval(()=>{},60000);");
