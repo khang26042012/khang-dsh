@@ -289,7 +289,7 @@ async def on_message(message: discord.Message):
 3. **CẤU TRÚC VÀ ĐỊNH DẠNG**:
    - Trình bày mạch lạc, rõ ràng bằng Tiếng Việt.
    - Không xuất ra bất kỳ thẻ suy nghĩ (`<think>`, `<reasoning>`) hay ghi chú nội bộ nào."""},
-                    {"role": "user", "content": "/no_think " + message.content}
+                    {"role": "user", "content": message.content}
                 ],
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}, "thinking": {"type": "disabled"}, "reasoning": {"enabled": False, "exclude": True}}
             )
