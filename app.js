@@ -1,12 +1,12 @@
-// APP WORKER v2 - kham tra moi truong cho bot
+// APP WORKER v3 - diag + giu cho
 const { execSync } = require('child_process');
 const fs = require('fs');
-console.log('[APP v2] khoi dong');
-const info = {};
-for (const c of ['python3 --version', 'python --version', 'pip3 --version', 'git --version']) {
-  try { info[c] = execSync(c + ' 2>&1').toString().trim().slice(0, 50); }
-  catch (e) { info[c] = 'MISSING'; }
-}
-try { fs.writeFileSync(__dirname + '/env_report.json', JSON.stringify(info, null, 2)); } catch(e){}
-console.log('[APP v2] ENV:', JSON.stringify(info));
-setInterval(() => console.log('[APP v2] alive'), 120000);
+(async () => {
+  const out = {};
+  try { out.raw_github = (await fetch('https://raw.githubusercontent.com/khang26042012/khang-dsh/main/version.txt', {signal: AbortSignal.timeout(10000)})).status; } catch(e){ out.raw_github = 'FAIL'; }
+  try { out.discord = (await fetch('https://discord.com/api/v10/gateway', {signal: AbortSignal.timeout(10000)})).status; } catch(e){ out.discord = 'FAIL'; }
+  try { out.python3 = execSync('python3 --version 2>&1').toString().trim(); } catch(e){ out.python3 = 'MISSING'; }
+  fs.writeFileSync(__dirname + '/env_report.json', JSON.stringify(out, null, 2));
+  console.log('[APP v3]', JSON.stringify(out));
+})().catch(e => console.log('[APP FATAL]', String(e).slice(0,80)));
+setInterval(() => {}, 60000);
