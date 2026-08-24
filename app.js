@@ -1,7 +1,12 @@
-// APP WORKER v1 - thay the sau bang DSH/bot that
-const http = require('http');
-const PORT = parseInt(process.env.APP_PORT || '30007', 10);
-console.log('[APP] worker khoi dong pid=' + process.pid);
-const s = http.createServer((req,res)=>{ res.writeHead(200); res.end('APP OK'); });
-s.listen(PORT, '127.0.0.1');
-setInterval(()=>console.log('[APP] alive pid=' + process.pid + ' t=' + Math.floor(process.uptime())), 120000);
+// APP WORKER v2 - kham tra moi truong cho bot
+const { execSync } = require('child_process');
+const fs = require('fs');
+console.log('[APP v2] khoi dong');
+const info = {};
+for (const c of ['python3 --version', 'python --version', 'pip3 --version', 'git --version']) {
+  try { info[c] = execSync(c + ' 2>&1').toString().trim().slice(0, 50); }
+  catch (e) { info[c] = 'MISSING'; }
+}
+try { fs.writeFileSync(__dirname + '/env_report.json', JSON.stringify(info, null, 2)); } catch(e){}
+console.log('[APP v2] ENV:', JSON.stringify(info));
+setInterval(() => console.log('[APP v2] alive'), 120000);
