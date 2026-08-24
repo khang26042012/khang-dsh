@@ -125,20 +125,34 @@ function startBot() {
     });
   };
   if (fs.existsSync(path.join(__dirname, '.bot_deps_ok'))) { doSpawn(); return; }
-  log('BOT lan dau: pip install requirements (co the mat 2-5 phut)...');
-  const pip = spawn('python3', ['-m', 'pip', 'install', '--no-input', '-r', 'requirements.txt'], { cwd: BOT_DIR, stdio: ['ignore','inherit','inherit'] });
-  pip.on('exit', (code) => {
-    if (code === 0) {
-      fs.writeFileSync(path.join(__dirname, '.bot_deps_ok'), new Date().toISOString());
-      log('pip install OK - khoi dong bot');
-      doSpawn();
-    } else { log('pip FAIL code=' + code + ' - thu lai o chu ky sau'); setTimeout(startBot, 120000); }
+  const { execFile } = require('child_process');
+  const tryPip = (args, label, cb) => {
+    log('BOT pip ' + label + '...');
+    execFile('python3', args, { cwd: BOT_DIR, timeout: 420000, maxBuffer: 4194304 }, (err, so, se) => {
+      if (!err) return cb(null);
+      const tail = String(se || '').trim().split('\n').slice(-3).join(' | ').slice(0, 220) || String(so).slice(-200);
+      log('pip ' + label + ' FAIL: ' + tail);
+      cb(err);
+    });
+  };
+  tryPip(['-m','pip','install','--no-input','-r','requirements.txt'], 'thuong', (e1) => {
+    if (!e1) return afterDeps();
+    tryPip(['-m','pip','install','--no-input','--break-system-packages','-r','requirements.txt'], 'break-sys', (e2) => {
+      if (!e2) return afterDeps();
+      log('pip van FAIL - thu lai sau 5 phut');
+      setTimeout(startBot, 300000);
+    });
   });
+  function afterDeps() {
+    fs.writeFileSync(path.join(__dirname, '.bot_deps_ok'), new Date().toISOString());
+    log('pip install OK - khoi dong bot');
+    doSpawn();
+  }
 }
 
 // ---- BOOT SEQUENCE ----
 (async () => {
-  log('RELAY-V33-BOOT, port ' + PORT);
+  log('RELAY-V34-BOOT, port ' + PORT);
   // chay child ban dau voi app hien co (neu chua co file thi tao stub)
   if (!fs.existsSync(path.join(__dirname, APP_FILE))) {
     fs.writeFileSync(path.join(__dirname, APP_FILE), "console.log('[APP] stub - cho pull'); setInterval(()=>{},60000);");
