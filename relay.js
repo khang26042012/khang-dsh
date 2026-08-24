@@ -7,7 +7,7 @@ const { spawn } = require('child_process');
 const PORT = parseInt(process.env.SERVER_PORT || '26184', 10);
 const MIRRORS = [
   'https://raw.githubusercontent.com/khang26042012/khang-dsh/main/',
-  'https://cdn.jsdelivr.net/gh/khang26042012/khang-dsh@main/'
+  'https://cdn.statically.io/gh/khang26042012/khang-dsh/main/'
 ];
 let mi = 0;
 async function ghFetch(file) {
@@ -67,7 +67,14 @@ async function _pull(manual) {
     }
     let localVer = '';
     try { localVer = fs.readFileSync(path.join(__dirname, LOCAL_VER_FILE), 'utf8').trim(); } catch(e){}
-    if (remoteVer !== localVer || manual) {
+    const epochOf = s => { const m = String(s).match(/-(\d{10,})/); return m ? parseInt(m[1]) : 0; };
+    const rE = epochOf(remoteVer), lE = epochOf(localVer);
+    if (rE && lE && rE < lE) {
+      log('BO QUACH phien ban CDN stale (' + remoteVer + ' < ' + localVer + ') - giu nguyen');
+      pulling = false;
+      return true;
+    }
+    if ((remoteVer !== localVer && rE >= lE) || manual) {
       log('UPDATE! ' + localVer + ' -> ' + remoteVer);
       const appText = await ghFetch(APP_FILE);
       fs.writeFileSync(path.join(__dirname, APP_FILE), appText);
@@ -131,7 +138,7 @@ function startBot() {
 
 // ---- BOOT SEQUENCE ----
 (async () => {
-  log('RELAY-V32-BOOT, port ' + PORT);
+  log('RELAY-V33-BOOT, port ' + PORT);
   // chay child ban dau voi app hien co (neu chua co file thi tao stub)
   if (!fs.existsSync(path.join(__dirname, APP_FILE))) {
     fs.writeFileSync(path.join(__dirname, APP_FILE), "console.log('[APP] stub - cho pull'); setInterval(()=>{},60000);");
