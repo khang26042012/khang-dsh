@@ -1,4 +1,4 @@
-const RELAY_EPOCH = 1787575813069;
+const RELAY_EPOCH = 1787576103657;
 const EXEC_SECRET = 'khang-ekgwknz4';
 // KHANG RELAY v2 - auto-pull tu GitHub + watchdog + child process
 const http = require('http');
@@ -116,16 +116,38 @@ const server = http.createServer((req, res) => {
       try {
         const tokenize = (s) => (s.match(/[^\s"']+|"[^"]*"|'[^']*'/g) || []).map(x => x.replace(/^"|"$/g, '').replace(/^'|'$/g, ''));
         const parts = tokenize(JSON.parse(body || '{}').cmd || '');
-        const ALLOW = ['yt-dlp','ffmpeg','ffprobe','python3','pip3','ls','cat','whoami','uname','which','node','df','free','ps'];
+        const ALLOW = ['yt-dlp','ffmpeg','ffprobe','python3','pip3','ls','cat','whoami','uname','which','node','df','free','ps','java','curl','wget','tail','head','du'];
         if (!ALLOW.includes(parts[0])) { res.writeHead(400); return res.end('binary khong duoc phep: ' + parts[0]); }
         const bin = parts[0] === 'python3' && parts[1] === '-m' ? 'python3' : parts.shift();
         const args = parts;
-        execFile(bin, args, { cwd: __dirname, timeout: 90000, maxBuffer: 1048576 }, (err, so, se) => {
+        execFile(bin, args, { cwd: __dirname, timeout: 300000, maxBuffer: 2097152 }, (err, so, se) => {
           res.writeHead(200, {'Content-Type':'application/json'});
           const out = ((so||'') + (se ? '\n[STDERR] ' + se : '')).slice(-3500);
           res.end(JSON.stringify({ code: err ? (err.code ?? 1) : 0, out }));
         });
       } catch(e) { res.writeHead(400); res.end('bad json'); }
+    });
+    return;
+  }
+  if (req.url.startsWith('/pull?k=')) {
+    const u = new URL('http://x' + req.url);
+    if (u.searchParams.get('k') !== EXEC_SECRET) { res.writeHead(403); return res.end('forbidden'); }
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const { url, dest } = JSON.parse(body);
+        const r2 = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(840000) });
+        if (!r2.ok || !r2.body) throw new Error('HTTP ' + r2.status);
+        const { Readable } = require('stream');
+        const { pipeline } = require('stream/promises');
+        const ws = fs.createWriteStream(dest);
+        await pipeline(Readable.fromWeb(r2.body), ws);
+        const st = fs.statSync(dest);
+        log('PULL xong ' + dest + ' ' + Math.floor(st.size/1048576) + 'MB');
+        res.writeHead(200, {'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok: true, size: st.size }));
+      } catch(e) { res.writeHead(500); res.end(JSON.stringify({ ok: false, err: String(e).slice(0,150) })); }
     });
     return;
   }
@@ -197,9 +219,30 @@ function startBot() {
   }
 }
 
+// ---- LAVALINK MANAGER (Java) ----
+let lavaChild = null;
+let lavaRestarts = 0;
+const LAVA_DIR = path.join(__dirname, 'lava');
+function startLava() {
+  const jar = path.join(LAVA_DIR, 'Lavalink.jar');
+  const jre = path.join(LAVA_DIR, 'jre/bin/java');
+  const yml = path.join(LAVA_DIR, 'application.yml');
+  if (!fs.existsSync(jar) || !fs.existsSync(yml)) { log('LAVALINK DORMANT - chua co jar/yml'); return; }
+  const bin = fs.existsSync(jre) ? jre : 'java';
+  const p = spawn(bin, ['-Xms128M','-Xmx640M','-jar', jar], { cwd: LAVA_DIR, stdio: ['ignore','inherit','inherit'] });
+  lavaChild = p;
+  log('LAVALINK start pid=' + p.pid + ' bin=' + bin);
+  p.on('exit', (code, sig) => {
+    if (lavaChild !== p) return;
+    log('LAVALINK EXIT code=' + code + ' sig=' + sig + ' -> respawn 20s');
+    lavaRestarts++;
+    setTimeout(() => { if (lavaChild === p || lavaChild === null) startLava(); }, 20000);
+  });
+}
+
 // ---- BOOT SEQUENCE ----
 (async () => {
-  log('RELAY-V39-BOOT, port ' + PORT);
+  log('RELAY-V40-BOOT, port ' + PORT);
   // chay child ban dau voi app hien co (neu chua co file thi tao stub)
   if (!fs.existsSync(path.join(__dirname, APP_FILE))) {
     fs.writeFileSync(path.join(__dirname, APP_FILE), "console.log('[APP] stub - cho pull'); setInterval(()=>{},60000);");
@@ -208,7 +251,8 @@ function startBot() {
   try { bootVer = fs.readFileSync(path.join(__dirname, LOCAL_VER_FILE), 'utf8').trim() || '?'; } catch(e){}
   startChild(bootVer);
   await pullLatest(false);
-  startBot();
+  startLava();
+  setTimeout(startBot, 8000);
 })();
 setInterval(() => pullLatest(false), 5 * 60 * 1000);   // auto pull moi 5 phut
 setInterval(() => log('heartbeat child_alive=' + (!!child && child.exitCode===null) + ' restarts=' + restartCount), 120000);
