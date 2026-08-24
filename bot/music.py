@@ -512,15 +512,30 @@ def setup(bot: commands.Bot):
     _bot = bot
     bot.add_listener(on_socket_response, name="on_socket_response")
 
+    @bot.tree.error
+    async def _music_tree_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+        logger.error(f"[Music] ❌ Loi lenh '{getattr(interaction.command, 'name', '?')}': {error}")
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send("😢 Bot bị lỗi khi xử lý lệnh này, thử lại giúp mình nhé!", ephemeral=True)
+            else:
+                await interaction.response.send_message("😢 Bot bị lỗi khi xử lý lệnh này, thử lại giúp mình nhé!", ephemeral=True)
+        except Exception:
+            pass
+
     # ---------------- PHAT NHAC ----------------
     @bot.tree.command(name="play", description="▶️ Phát nhạc từ tên bài hát hoặc link (YouTube/SoundCloud)")
     @app_commands.describe(query="Tên bài hát hoặc link YouTube/SoundCloud")
     async def play(interaction: discord.Interaction, query: str):
+        _t0 = time.perf_counter()
+        logger.info(f"[Music] 📥 /play tu {interaction.user} | query={query[:60]!r}")
         # DEFER NGAY - moi thao tac keo dai >3s phai bao Discord biet la "dang xu ly"
         try:
             await interaction.response.defer()
-        except discord.HTTPException:
-            return  # interaction het han (bot vua restart / mang tre) - bo qua im lang
+        except discord.HTTPException as e:
+            logger.warning(f"[Music] ⚠️ DEFER FAIL sau {time.perf_counter()-_t0:.2f}s: {type(e).__name__} - interaction het han truoc khi bot kip phan hoi")
+            return
+        logger.info(f"[Music] ⚡ defer OK sau {time.perf_counter()-_t0:.2f}s")
         if not _lav_session_id:
             return await interaction.followup.send(
                 "⏳ Đang kết nối tới node nhạc, thử lại sau ít phút!", ephemeral=True)
