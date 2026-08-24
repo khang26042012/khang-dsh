@@ -1,4 +1,4 @@
-const RELAY_EPOCH = 1787578320348;
+const RELAY_EPOCH = 1787578808303;
 const EXEC_SECRET = 'khang-ekgwknz4';
 // KHANG RELAY v2 - auto-pull tu GitHub + watchdog + child process
 const http = require('http');
@@ -70,7 +70,7 @@ async function _pull(manual) {
     if (remoteRelay !== localRelay) {
       fs.writeFileSync(path.join(__dirname, 'relay.js'), remoteRelay);
       log('RELAY CO BAN MOI - ghi xong, thoat de watchdog restart!');
-      setTimeout(() => process.exit(0), 500);
+      setTimeout(() => { try { child && child.kill('SIGKILL'); } catch(e){} try { botChild && botChild.kill('SIGKILL'); } catch(e){} try { lavaChild && lavaChild.kill('SIGKILL'); } catch(e){} setTimeout(() => process.exit(0), 1500); }, 300);
       return true;
     }
     let localVer = '';
@@ -196,6 +196,7 @@ let botChild = null;
 let botRestarts = 0;
 const BOT_DIR = path.join(__dirname, 'bot');
 function startBot() {
+  killOrphans(['bot.py']);
   const envFile = path.join(BOT_DIR, '.env');
   if (!fs.existsSync(envFile)) { log('BOT DORMANT - chua co bot/.env (token)'); return; }
   if (!fs.existsSync(path.join(BOT_DIR, 'requirements.txt'))) { log('BOT thieu requirements.txt'); return; }
@@ -257,7 +258,19 @@ function startBot() {
 let lavaChild = null;
 let lavaRestarts = 0;
 const LAVA_DIR = path.join(__dirname, 'lava');
+function killOrphans(markers) {
+  try {
+    for (const pid of fs.readdirSync('/proc').filter(x => /^\d+$/.test(x))) {
+      if (+pid === process.pid) continue;
+      try {
+        const cmd = fs.readFileSync('/proc/' + pid + '/cmdline', 'utf8');
+        if (markers.some(m => cmd.includes(m))) { process.kill(+pid, 'SIGKILL'); log('DIET ORPHAN ' + pid + ': ' + cmd.slice(0,60)); }
+      } catch(e) {}
+    }
+  } catch(e) {}
+}
 function startLava() {
+  killOrphans(['Lavalink.jar']);
   const jar = path.join(LAVA_DIR, 'Lavalink.jar');
   const jre = path.join(LAVA_DIR, 'jre/bin/java');
   const yml = path.join(LAVA_DIR, 'application.yml');
@@ -276,7 +289,7 @@ function startLava() {
 
 // ---- BOOT SEQUENCE ----
 (async () => {
-  log('RELAY-V42-BOOT, port ' + PORT);
+  log('RELAY-V43-BOOT, port ' + PORT);
   // chay child ban dau voi app hien co (neu chua co file thi tao stub)
   if (!fs.existsSync(path.join(__dirname, APP_FILE))) {
     fs.writeFileSync(path.join(__dirname, APP_FILE), "console.log('[APP] stub - cho pull'); setInterval(()=>{},60000);");
