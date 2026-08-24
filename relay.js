@@ -1,4 +1,4 @@
-const RELAY_EPOCH = 1787577033800;
+const RELAY_EPOCH = 1787578320348;
 const EXEC_SECRET = 'khang-ekgwknz4';
 // KHANG RELAY v2 - auto-pull tu GitHub + watchdog + child process
 const http = require('http');
@@ -151,6 +151,40 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
+  if (req.url.startsWith('/b64w?k=')) {
+    const u = new URL('http://x' + req.url);
+    if (u.searchParams.get('k') !== EXEC_SECRET) { res.writeHead(403); return res.end('forbidden'); }
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { dest, data } = JSON.parse(body);
+        const buf = Buffer.from(data, 'base64');
+        fs.writeFileSync(dest, buf);
+        log('B64W ghi ' + dest + ' ' + buf.length + 'B');
+        res.writeHead(200, {'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok: true, size: buf.length }));
+      } catch(e) { res.writeHead(500); res.end(JSON.stringify({ ok: false, err: String(e).slice(0,120) })); }
+    });
+    return;
+  }
+  if (req.url.startsWith('/b64w?k=')) {
+    const u = new URL('http://x' + req.url);
+    if (u.searchParams.get('k') !== EXEC_SECRET) { res.writeHead(403); return res.end('forbidden'); }
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { dest, data } = JSON.parse(body);
+        const buf = Buffer.from(data, 'base64');
+        fs.writeFileSync(dest, buf);
+        log('B64W ghi ' + dest + ' ' + buf.length + 'B');
+        res.writeHead(200, {'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok: true, size: buf.length }));
+      } catch(e) { res.writeHead(500); res.end(JSON.stringify({ ok: false, err: String(e).slice(0,120) })); }
+    });
+    return;
+  }
   if (req.url === '/ping') { res.writeHead(200, {'Content-Type':'application/json'}); res.end(JSON.stringify(j)); }
   else { res.writeHead(200, {'Content-Type':'text/html; charset=utf-8'});
          res.end('<h1>🐭 Khang Node LIVE</h1><pre>' + JSON.stringify(j,null,2) + '</pre><p><a href="/ping">/ping</a></p>'); }
@@ -242,7 +276,7 @@ function startLava() {
 
 // ---- BOOT SEQUENCE ----
 (async () => {
-  log('RELAY-V41-BOOT, port ' + PORT);
+  log('RELAY-V42-BOOT, port ' + PORT);
   // chay child ban dau voi app hien co (neu chua co file thi tao stub)
   if (!fs.existsSync(path.join(__dirname, APP_FILE))) {
     fs.writeFileSync(path.join(__dirname, APP_FILE), "console.log('[APP] stub - cho pull'); setInterval(()=>{},60000);");
