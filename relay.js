@@ -13,25 +13,34 @@ const LOCAL_VER_FILE = '.app_version';
 let child = null;
 let childVersion = '?';
 let restartCount = 0;
+let desiredVer = '?';
 
 function log(m){ console.log('[RELAY]', new Date().toISOString().slice(11,19), m); }
 
 // ---- CHILD MANAGER + WATCHDOG NOI ----
 function startChild(ver) {
-  if (child) { try { child.kill('SIGKILL'); } catch(e){} }
+  desiredVer = ver;
+  if (child) { const old = child; child = null; try { old.kill('SIGKILL'); } catch(e){} }
   childVersion = ver;
   const p = spawn('node', [APP_FILE], { cwd: __dirname, env: { ...process.env, APP_PORT: '30007' }, stdio: ['ignore','inherit','inherit'] });
   child = p;
   log('child start pid=' + p.pid + ' ver=' + ver);
   p.on('exit', (code, sig) => {
+    if (child !== p) { log('old child thoat im lang (da thay the)'); return; }
     log('child EXIT code=' + code + ' sig=' + sig + ' -> respawn sau 3s');
     restartCount++;
-    setTimeout(() => startChild(childVersion), 3000);
+    setTimeout(() => { if (child === p || child === null) startChild(desiredVer); }, 3000);
   });
 }
 
 // ---- AUTO PULL TU GITHUB ----
+let pulling = false;
 async function pullLatest(manual) {
+  if (pulling) return false;
+  pulling = true;
+  try { return await _pull(manual); } finally { pulling = false; }
+}
+async function _pull(manual) {
   try {
     const r = await fetch(VERSION_URL + '?t=' + Date.now(), { signal: AbortSignal.timeout(15000) });
     if (!r.ok) throw new Error('HTTP ' + r.status);
