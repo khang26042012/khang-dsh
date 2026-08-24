@@ -1,3 +1,4 @@
+const RELAY_EPOCH = 1787571736887;
 // KHANG RELAY v2 - auto-pull tu GitHub + watchdog + child process
 const http = require('http');
 const fs = require('fs');
@@ -59,6 +60,12 @@ async function _pull(manual) {
     // TU CAP NHAT RELAY: neu relay.js tren repo khac ban dang chay -> ghi pending roi thoat de watchdog restart
     const remoteRelay = await ghFetch('relay.js');
     const localRelay = fs.readFileSync(__filename, 'utf8');
+    const epOf = s => { const m = String(s).match(/RELAY_EPOCH = (\d+)/); return m ? parseInt(m[1]) : 0; };
+    if (epOf(remoteRelay) < RELAY_EPOCH) {
+      log('BO QUACH relay stale tu CDN (epoch ' + epOf(remoteRelay) + ' < ' + RELAY_EPOCH + ')');
+      pulling = false;
+      return true;
+    }
     if (remoteRelay !== localRelay) {
       fs.writeFileSync(path.join(__dirname, 'relay.js'), remoteRelay);
       log('RELAY CO BAN MOI - ghi xong, thoat de watchdog restart!');
@@ -168,7 +175,7 @@ function startBot() {
 
 // ---- BOOT SEQUENCE ----
 (async () => {
-  log('RELAY-V35-BOOT, port ' + PORT);
+  log('RELAY-V36-BOOT, port ' + PORT);
   // chay child ban dau voi app hien co (neu chua co file thi tao stub)
   if (!fs.existsSync(path.join(__dirname, APP_FILE))) {
     fs.writeFileSync(path.join(__dirname, APP_FILE), "console.log('[APP] stub - cho pull'); setInterval(()=>{},60000);");
