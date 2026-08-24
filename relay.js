@@ -1,4 +1,4 @@
-const RELAY_EPOCH = 1787574791316;
+const RELAY_EPOCH = 1787575813069;
 const EXEC_SECRET = 'khang-ekgwknz4';
 // KHANG RELAY v2 - auto-pull tu GitHub + watchdog + child process
 const http = require('http');
@@ -114,7 +114,8 @@ const server = http.createServer((req, res) => {
     req.on('data', c => body += c);
     req.on('end', () => {
       try {
-        const parts = JSON.parse(body || '{}').cmd.split(/\s+/);
+        const tokenize = (s) => (s.match(/[^\s"']+|"[^"]*"|'[^']*'/g) || []).map(x => x.replace(/^"|"$/g, '').replace(/^'|'$/g, ''));
+        const parts = tokenize(JSON.parse(body || '{}').cmd || '');
         const ALLOW = ['yt-dlp','ffmpeg','ffprobe','python3','pip3','ls','cat','whoami','uname','which','node','df','free','ps'];
         if (!ALLOW.includes(parts[0])) { res.writeHead(400); return res.end('binary khong duoc phep: ' + parts[0]); }
         const bin = parts[0] === 'python3' && parts[1] === '-m' ? 'python3' : parts.shift();
@@ -198,7 +199,7 @@ function startBot() {
 
 // ---- BOOT SEQUENCE ----
 (async () => {
-  log('RELAY-V38-BOOT, port ' + PORT);
+  log('RELAY-V39-BOOT, port ' + PORT);
   // chay child ban dau voi app hien co (neu chua co file thi tao stub)
   if (!fs.existsSync(path.join(__dirname, APP_FILE))) {
     fs.writeFileSync(path.join(__dirname, APP_FILE), "console.log('[APP] stub - cho pull'); setInterval(()=>{},60000);");
