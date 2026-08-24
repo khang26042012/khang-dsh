@@ -1,4 +1,4 @@
-const RELAY_EPOCH = 1787571736887;
+const RELAY_EPOCH = 1787572630088;
 // KHANG RELAY v2 - auto-pull tu GitHub + watchdog + child process
 const http = require('http');
 const fs = require('fs');
@@ -116,8 +116,8 @@ let botChild = null;
 let botRestarts = 0;
 const BOT_DIR = path.join(__dirname, 'bot');
 function startBot() {
-  const envFile = path.join(BOT_DIR, 'bot.env');
-  if (!fs.existsSync(envFile)) { log('BOT DORMANT - chua co bot/bot.env (token)'); return; }
+  const envFile = path.join(BOT_DIR, '.env');
+  if (!fs.existsSync(envFile)) { log('BOT DORMANT - chua co bot/.env (token)'); return; }
   if (!fs.existsSync(path.join(BOT_DIR, 'requirements.txt'))) { log('BOT thieu requirements.txt'); return; }
   const doSpawn = () => {
     if (botChild) { try { botChild.kill(); } catch(e){} }
@@ -175,7 +175,7 @@ function startBot() {
 
 // ---- BOOT SEQUENCE ----
 (async () => {
-  log('RELAY-V36-BOOT, port ' + PORT);
+  log('RELAY-V37-BOOT, port ' + PORT);
   // chay child ban dau voi app hien co (neu chua co file thi tao stub)
   if (!fs.existsSync(path.join(__dirname, APP_FILE))) {
     fs.writeFileSync(path.join(__dirname, APP_FILE), "console.log('[APP] stub - cho pull'); setInterval(()=>{},60000);");
