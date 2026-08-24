@@ -126,6 +126,25 @@ function startBot() {
   };
   if (fs.existsSync(path.join(__dirname, '.bot_deps_ok'))) { doSpawn(); return; }
   const { execFile } = require('child_process');
+  function ensurePip(cb) {
+    execFile('python3', ['-m','pip','--version'], { timeout: 30000 }, (e) => {
+      if (!e) { log('pip da co san'); return cb(); }
+      log('thieu pip - thu ensurepip...');
+      execFile('python3', ['-m','ensurepip','--upgrade'], { timeout: 120000 }, (e2, so2, se2) => {
+        if (!e2) { log('ensurepip OK'); return cb(); }
+        log('ensurepip FAIL: ' + String(se2||so2).slice(-150));
+        log('tai get-pip.py...');
+        fetch('https://bootstrap.pypa.io/get-pip.py').then(r => r.text()).then(txt => {
+          fs.writeFileSync(path.join(BOT_DIR, 'get-pip.py'), txt);
+          execFile('python3', ['get-pip.py', '--break-system-packages'], { cwd: BOT_DIR, timeout: 180000 }, (e3, so3, se3) => {
+            if (!e3) { log('get-pip OK'); return cb(); }
+            log('get-pip FAIL: ' + String(se3||so3).slice(-200));
+            setTimeout(startBot, 300000);
+          });
+        }).catch(err => { log('tai get-pip loi: ' + String(err).slice(0,100)); setTimeout(startBot, 300000); });
+      });
+    });
+  }
   const tryPip = (args, label, cb) => {
     log('BOT pip ' + label + '...');
     execFile('python3', args, { cwd: BOT_DIR, timeout: 420000, maxBuffer: 4194304 }, (err, so, se) => {
@@ -135,14 +154,11 @@ function startBot() {
       cb(err);
     });
   };
-  tryPip(['-m','pip','install','--no-input','-r','requirements.txt'], 'thuong', (e1) => {
+  ensurePip(() => tryPip(['-m','pip','install','--no-input','--break-system-packages','-r','requirements.txt'], 'deps', (e1) => {
     if (!e1) return afterDeps();
-    tryPip(['-m','pip','install','--no-input','--break-system-packages','-r','requirements.txt'], 'break-sys', (e2) => {
-      if (!e2) return afterDeps();
-      log('pip van FAIL - thu lai sau 5 phut');
-      setTimeout(startBot, 300000);
-    });
-  });
+    log('pip deps van FAIL - thu lai sau 5 phut');
+    setTimeout(startBot, 300000);
+  }));
   function afterDeps() {
     fs.writeFileSync(path.join(__dirname, '.bot_deps_ok'), new Date().toISOString());
     log('pip install OK - khoi dong bot');
@@ -152,7 +168,7 @@ function startBot() {
 
 // ---- BOOT SEQUENCE ----
 (async () => {
-  log('RELAY-V34-BOOT, port ' + PORT);
+  log('RELAY-V35-BOOT, port ' + PORT);
   // chay child ban dau voi app hien co (neu chua co file thi tao stub)
   if (!fs.existsSync(path.join(__dirname, APP_FILE))) {
     fs.writeFileSync(path.join(__dirname, APP_FILE), "console.log('[APP] stub - cho pull'); setInterval(()=>{},60000);");
