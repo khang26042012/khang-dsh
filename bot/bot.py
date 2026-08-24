@@ -261,7 +261,6 @@ async def on_message(message: discord.Message):
             response = await ai_client.chat.completions.create(
                 model=XKIRO_MODEL,
                 max_tokens=1800,
-                extra_body={"reasoning": {"enabled": False, "exclude": True}},
                 messages=[
                     {"role": "system", "content": """# Role: KhangSMP Support Assistant
 
@@ -292,7 +291,7 @@ async def on_message(message: discord.Message):
    - Không xuất ra bất kỳ thẻ suy nghĩ (`<think>`, `<reasoning>`) hay ghi chú nội bộ nào."""},
                     {"role": "user", "content": "/no_think " + message.content}
                 ],
-                extra_body={"chat_template_kwargs": {"enable_thinking": False}, "thinking": {"type": "disabled"}}
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}, "thinking": {"type": "disabled"}, "reasoning": {"enabled": False, "exclude": True}}
             )
             ai_reply = response.choices[0].message.content or ""
             
