@@ -131,12 +131,14 @@ function startBot() {
 
 // ---- BOOT SEQUENCE ----
 (async () => {
-  log('RELAY-V31-BOOT, port ' + PORT);
+  log('RELAY-V32-BOOT, port ' + PORT);
   // chay child ban dau voi app hien co (neu chua co file thi tao stub)
   if (!fs.existsSync(path.join(__dirname, APP_FILE))) {
     fs.writeFileSync(path.join(__dirname, APP_FILE), "console.log('[APP] stub - cho pull'); setInterval(()=>{},60000);");
   }
-  startChild('?');
+  let bootVer = '?';
+  try { bootVer = fs.readFileSync(path.join(__dirname, LOCAL_VER_FILE), 'utf8').trim() || '?'; } catch(e){}
+  startChild(bootVer);
   await pullLatest(false);
   startBot();
 })();
