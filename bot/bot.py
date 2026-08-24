@@ -33,9 +33,9 @@ ALLOWED_CHANNEL_ID = int(ALLOWED_CHANNEL_ID_RAW) if ALLOWED_CHANNEL_ID_RAW and A
 WELCOME_CHANNEL_ID = 1539905599196766228
 SEE_YOU_CHANNEL_ID = 1539906242187632691
 
-ROUTER_API_KEY = os.getenv("ROUTER_API_KEY", "sk-edf12b35e2ae5e24-lccea8-b96faa63")
-ROUTER_BASE_URL = os.getenv("ROUTER_BASE_URL", "https://9router-production-efb2.up.railway.app/v1")
-ROUTER_MODEL = os.getenv("ROUTER_MODEL", "Xkiro/qwen/qwen3.7-max")
+ROUTER_API_KEY = os.getenv("ROUTER_API_KEY", "sk-0fc648aa8d074f59-4tiy6p-7efc95e5")
+ROUTER_BASE_URL = os.getenv("ROUTER_BASE_URL", "https://1-production-6390.up.railway.app/v1")
+ROUTER_MODEL = os.getenv("ROUTER_MODEL", "openrouter/nvidia/nemotron-3.5-lightning:free")
 
 # Use ROUTER_* variables for the AI client
 XKIRO_API_KEY = ROUTER_API_KEY
@@ -79,10 +79,7 @@ if not TOKEN:
 # Initialize OpenAI Client for Xkiro API
 ai_client = AsyncOpenAI(
     api_key=XKIRO_API_KEY,
-    base_url=XKIRO_BASE_URL,
-    default_headers={
-        "X-Provider": "deepseek"
-    }
+    base_url=XKIRO_BASE_URL
 )
 
 # Bot configuration
@@ -263,6 +260,8 @@ async def on_message(message: discord.Message):
         try:
             response = await ai_client.chat.completions.create(
                 model=XKIRO_MODEL,
+                max_tokens=1800,
+                extra_body={"reasoning": {"enabled": False, "exclude": True}},
                 messages=[
                     {"role": "system", "content": """# Role: KhangSMP Support Assistant
 
