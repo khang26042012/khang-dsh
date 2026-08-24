@@ -5,8 +5,21 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const PORT = parseInt(process.env.SERVER_PORT || '26184', 10);
-const GH_BASE = 'https://raw.githubusercontent.com/khang26042012/khang-dsh/main/';
-const VERSION_URL = GH_BASE + 'version.txt';
+const MIRRORS = [
+  'https://raw.githubusercontent.com/khang26042012/khang-dsh/main/',
+  'https://cdn.jsdelivr.net/gh/khang26042012/khang-dsh@main/'
+];
+let mi = 0;
+async function ghFetch(file) {
+  for (let i = 0; i < MIRRORS.length; i++) {
+    const base = MIRRORS[(mi + i) % MIRRORS.length];
+    try {
+      const r = await fetch(base + file + '?t=' + Date.now(), { signal: AbortSignal.timeout(15000) });
+      if (r.ok) { mi = (mi + i) % MIRRORS.length; return await r.text(); }
+    } catch (e) {}
+  }
+  throw new Error('tat ca mirror deu loi');
+}
 const APP_FILE = 'app.js';
 const LOCAL_VER_FILE = '.app_version';
 
@@ -42,9 +55,16 @@ async function pullLatest(manual) {
 }
 async function _pull(manual) {
   try {
-    const r = await fetch(VERSION_URL + '?t=' + Date.now(), { signal: AbortSignal.timeout(15000) });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const remoteVer = (await r.text()).trim();
+    const remoteVer = (await ghFetch('version.txt')).trim();
+    // TU CAP NHAT RELAY: neu relay.js tren repo khac ban dang chay -> ghi pending roi thoat de watchdog restart
+    const remoteRelay = await ghFetch('relay.js');
+    const localRelay = fs.readFileSync(__filename, 'utf8');
+    if (remoteRelay !== localRelay) {
+      fs.writeFileSync(path.join(__dirname, 'relay.js'), remoteRelay);
+      log('RELAY CO BAN MOI - ghi xong, thoat de watchdog restart!');
+      setTimeout(() => process.exit(0), 500);
+      return true;
+    }
     let localVer = '';
     try { localVer = fs.readFileSync(path.join(__dirname, LOCAL_VER_FILE), 'utf8').trim(); } catch(e){}
     if (remoteVer !== localVer || manual) {
