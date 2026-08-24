@@ -497,7 +497,10 @@ def setup(bot: commands.Bot):
     @app_commands.describe(query="Tên bài hát hoặc link YouTube/SoundCloud")
     async def play(interaction: discord.Interaction, query: str):
         # DEFER NGAY - moi thao tac keo dai >3s phai bao Discord biet la "dang xu ly"
-        await interaction.response.defer()
+        try:
+            await interaction.response.defer()
+        except discord.HTTPException:
+            return  # interaction het han (bot vua restart / mang tre) - bo qua im lang
         if not _lav_session_id:
             return await interaction.followup.send(
                 "⏳ Đang kết nối tới node nhạc, thử lại sau ít phút!", ephemeral=True)
@@ -666,7 +669,10 @@ def setup(bot: commands.Bot):
             return await interaction.response.send_message(embed=embed)
         idx = int(kenh.value)
         station = RADIO_STATIONS[idx]
-        await interaction.response.defer()
+        try:
+            await interaction.response.defer()
+        except discord.HTTPException:
+            return
         vc = await _ensure_voice(interaction)
         if vc is None:
             return await interaction.followup.send(
