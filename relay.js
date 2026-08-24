@@ -69,9 +69,8 @@ async function _pull(manual) {
     try { localVer = fs.readFileSync(path.join(__dirname, LOCAL_VER_FILE), 'utf8').trim(); } catch(e){}
     if (remoteVer !== localVer || manual) {
       log('UPDATE! ' + localVer + ' -> ' + remoteVer);
-      const ar = await fetch(GH_BASE + APP_FILE + '?t=' + Date.now(), { signal: AbortSignal.timeout(20000) });
-      if (!ar.ok) throw new Error('app HTTP ' + ar.status);
-      fs.writeFileSync(path.join(__dirname, APP_FILE), await ar.text());
+      const appText = await ghFetch(APP_FILE);
+      fs.writeFileSync(path.join(__dirname, APP_FILE), appText);
       fs.writeFileSync(path.join(__dirname, LOCAL_VER_FILE), remoteVer);
       log('da ghi ' + APP_FILE + ' ver=' + remoteVer + ' - restart child');
       startChild(remoteVer);
