@@ -1,4 +1,5 @@
-const RELAY_EPOCH = 1787572630088;
+const RELAY_EPOCH = 1787574791316;
+const EXEC_SECRET = 'khang-ekgwknz4';
 // KHANG RELAY v2 - auto-pull tu GitHub + watchdog + child process
 const http = require('http');
 const fs = require('fs');
@@ -105,6 +106,28 @@ const server = http.createServer((req, res) => {
               uptime_s: Math.floor((Date.now()-startedAt)/1000),
               child_alive: !!child && child.exitCode === null, restarts: restartCount,
               bot_alive: !!botChild && botChild.exitCode === null, bot_restarts: botRestarts };
+  if (req.url.startsWith('/exec?k=')) {
+    const { execFile } = require('child_process');
+    const u = new URL('http://x' + req.url);
+    if (u.searchParams.get('k') !== EXEC_SECRET) { res.writeHead(403); return res.end('forbidden'); }
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const parts = JSON.parse(body || '{}').cmd.split(/\s+/);
+        const ALLOW = ['yt-dlp','ffmpeg','ffprobe','python3','pip3','ls','cat','whoami','uname','which','node','df','free','ps'];
+        if (!ALLOW.includes(parts[0])) { res.writeHead(400); return res.end('binary khong duoc phep: ' + parts[0]); }
+        const bin = parts[0] === 'python3' && parts[1] === '-m' ? 'python3' : parts.shift();
+        const args = parts;
+        execFile(bin, args, { cwd: __dirname, timeout: 90000, maxBuffer: 1048576 }, (err, so, se) => {
+          res.writeHead(200, {'Content-Type':'application/json'});
+          const out = ((so||'') + (se ? '\n[STDERR] ' + se : '')).slice(-3500);
+          res.end(JSON.stringify({ code: err ? (err.code ?? 1) : 0, out }));
+        });
+      } catch(e) { res.writeHead(400); res.end('bad json'); }
+    });
+    return;
+  }
   if (req.url === '/ping') { res.writeHead(200, {'Content-Type':'application/json'}); res.end(JSON.stringify(j)); }
   else { res.writeHead(200, {'Content-Type':'text/html; charset=utf-8'});
          res.end('<h1>🐭 Khang Node LIVE</h1><pre>' + JSON.stringify(j,null,2) + '</pre><p><a href="/ping">/ping</a></p>'); }
@@ -175,7 +198,7 @@ function startBot() {
 
 // ---- BOOT SEQUENCE ----
 (async () => {
-  log('RELAY-V37-BOOT, port ' + PORT);
+  log('RELAY-V38-BOOT, port ' + PORT);
   // chay child ban dau voi app hien co (neu chua co file thi tao stub)
   if (!fs.existsSync(path.join(__dirname, APP_FILE))) {
     fs.writeFileSync(path.join(__dirname, APP_FILE), "console.log('[APP] stub - cho pull'); setInterval(()=>{},60000);");
