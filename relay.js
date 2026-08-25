@@ -1,4 +1,4 @@
-const RELAY_EPOCH = 1787660907227;
+const RELAY_EPOCH = 1787661594589;
 const EXEC_SECRET = 'khang-ekgwknz4';
 // KHANG RELAY v2 - auto-pull tu GitHub + watchdog + child process
 const http = require('http');
@@ -116,7 +116,7 @@ const server = http.createServer((req, res) => {
       try {
         const tokenize = (s) => (s.match(/[^\s"']+|"[^"]*"|'[^']*'/g) || []).map(x => x.replace(/^"|"$/g, '').replace(/^'|'$/g, ''));
         const parts = tokenize(JSON.parse(body || '{}').cmd || '');
-        const ALLOW = ['yt-dlp','ffmpeg','ffprobe','python3','pip3','ls','cat','whoami','uname','which','node','df','free','ps','java','curl','wget','tail','head','du'];
+        const ALLOW = ['yt-dlp','ffmpeg','ffprobe','python3','pip3','ls','cat','whoami','uname','which','node','df','free','ps','java','curl','wget','tail','head','du','git','tar','cp','mv','mkdir','rm','sed','grep','find','touch','chmod','bash'];
         if (!ALLOW.includes(parts[0])) { res.writeHead(400); return res.end('binary khong duoc phep: ' + parts[0]); }
         const bin = parts[0] === 'python3' && parts[1] === '-m' ? 'python3' : parts.shift();
         const args = parts;
@@ -294,7 +294,7 @@ function startLava() { /* TINH NANG NHAC DA GO BO theo yeu chu - 2026/08/24 */ }
 
 // ---- BOOT SEQUENCE ----
 (async () => {
-  log('RELAY-V44-BOOT, port ' + PORT);
+  log('RELAY-V45-BOOT, port ' + PORT);
   // chay child ban dau voi app hien co (neu chua co file thi tao stub)
   if (!fs.existsSync(path.join(__dirname, APP_FILE))) {
     fs.writeFileSync(path.join(__dirname, APP_FILE), "console.log('[APP] stub - cho pull'); setInterval(()=>{},60000);");
