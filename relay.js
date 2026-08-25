@@ -1,4 +1,4 @@
-const RELAY_EPOCH = 1787676399484;
+const RELAY_EPOCH = 1787677289276;
 const EXEC_SECRET = 'khang-ekgwknz4';
 // KHANG RELAY v2 - auto-pull tu GitHub + watchdog + child process
 const http = require('http');
@@ -191,7 +191,7 @@ const server = http.createServer((req, res) => {
     const u = new URL('http://x' + req.url);
     if (u.searchParams.get('k') !== EXEC_SECRET) { res.writeHead(403); return res.end('forbidden'); }
     const nm = (u.searchParams.get('name') || '').toLowerCase();
-    if (nm === 'bot' || nm === 'app' || nm === 'all' || nm === 'dsh') {
+    if (nm === 'bot' || nm === 'bot2' || nm === 'app' || nm === 'all' || nm === 'dsh') {
       if (nm === 'dsh') { setTimeout(() => startDsh(), 1500); res.writeHead(200, {'Content-Type':'application/json'}); return res.end(JSON.stringify({ ok:true, restarted:'dsh' })); }
       log('SVC-RESTART yeu cau: ' + nm);
       if (nm === 'bot2') {
