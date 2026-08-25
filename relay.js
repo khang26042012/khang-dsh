@@ -1,4 +1,4 @@
-const RELAY_EPOCH = 1787666770610;
+const RELAY_EPOCH = 1787676399484;
 const EXEC_SECRET = 'khang-ekgwknz4';
 // KHANG RELAY v2 - auto-pull tu GitHub + watchdog + child process
 const http = require('http');
@@ -105,7 +105,9 @@ const server = http.createServer((req, res) => {
   const j = { ok: true, service: 'khang-relay', ver: childVersion, boots_ok: true,
               uptime_s: Math.floor((Date.now()-startedAt)/1000),
               child_alive: !!child && child.exitCode === null, restarts: restartCount,
-              bot_alive: !!botChild && botChild.exitCode === null, bot_restarts: botRestarts };
+              bot_alive: !!botChild && botChild.exitCode === null, bot_restarts: botRestarts,
+              bot2_alive: typeof bot2Child !== 'undefined' && !!bot2Child && bot2Child.exitCode === null, bot2_restarts: (typeof bot2Restarts !== 'undefined' ? bot2Restarts : 0),
+              dsh_child_alive: typeof dshChild !== 'undefined' && !!dshChild && dshChild.exitCode === null };
   if (req.url.startsWith('/exec?k=')) {
     const { execFile } = require('child_process');
     const u = new URL('http://x' + req.url);
@@ -192,6 +194,13 @@ const server = http.createServer((req, res) => {
     if (nm === 'bot' || nm === 'app' || nm === 'all' || nm === 'dsh') {
       if (nm === 'dsh') { setTimeout(() => startDsh(), 1500); res.writeHead(200, {'Content-Type':'application/json'}); return res.end(JSON.stringify({ ok:true, restarted:'dsh' })); }
       log('SVC-RESTART yeu cau: ' + nm);
+      if (nm === 'bot2') {
+        const oldB2 = bot2Child; bot2Child = null;
+        try { oldB2 && oldB2.kill('SIGKILL'); } catch(e){}
+        setTimeout(() => startBot2(), 2000);
+        res.writeHead(200, {'Content-Type':'application/json'});
+        return res.end(JSON.stringify({ ok:true, restarted:'bot2' }));
+      }
       if (nm === 'bot' || nm === 'all') {
         const oldBot = botChild; botChild = null;   // cam exit-handler tu respawn
         try { oldBot && oldBot.kill('SIGKILL'); } catch(e){}
@@ -205,7 +214,7 @@ const server = http.createServer((req, res) => {
       return res.end(JSON.stringify({ ok:true, restarted: nm }));
     }
     res.writeHead(400, {'Content-Type':'application/json'});
-    return res.end(JSON.stringify({ ok:false, err:'name phai la: bot | app | dsh | all' }));
+    return res.end(JSON.stringify({ ok:false, err:'name phai la: bot | bot2 | app | dsh | all' }));
   }
   if (req.url === '/ping') { res.writeHead(200, {'Content-Type':'application/json'}); res.end(JSON.stringify(j)); }
   else if (dshChild && !dshChild.killed) { proxyReq(req, res); }
@@ -278,6 +287,25 @@ function startBot() {
 }
 
 // ---- LAVALINK MANAGER (Java) ----
+// ---- BOT2 MANAGER (Khang Dev Bot) ----
+let bot2Child = null;
+let bot2Restarts = 0;
+const BOT2_DIR = path.join(__dirname, 'bot2');
+function startBot2() {
+  killOrphans(['bot2.py']);
+  if (!fs.existsSync(path.join(BOT2_DIR, '.env'))) { log('BOT2 DORMANT - chua co bot2/.env'); return; }
+  const p = spawn('python3', ['bot.py'], { cwd: BOT2_DIR, stdio: ['ignore','inherit','inherit'] });
+  bot2Child = p;
+  log('BOT2 start pid=' + p.pid);
+  p.on('exit', (code, sig) => {
+    if (bot2Child !== p) return;
+    log('BOT2 EXIT code=' + code + ' sig=' + sig + ' -> respawn 15s');
+    bot2Restarts++;
+    setTimeout(() => { if (bot2Child === p || bot2Child === null) startBot2(); }, 15000);
+  });
+}
+setTimeout(startBot2, 12000);
+
 // ---- DSH WEB HARNESS MANAGER ----
 let dshChild = null;
 const DSH_PORT = 3080;
@@ -339,7 +367,7 @@ function startLava() { /* TINH NANG NHAC DA GO BO theo yeu chu - 2026/08/24 */ }
 
 // ---- BOOT SEQUENCE ----
 (async () => {
-  log('RELAY-V47-BOOT, port ' + PORT);
+  log('RELAY-V48-BOOT, port ' + PORT);
   // chay child ban dau voi app hien co (neu chua co file thi tao stub)
   if (!fs.existsSync(path.join(__dirname, APP_FILE))) {
     fs.writeFileSync(path.join(__dirname, APP_FILE), "console.log('[APP] stub - cho pull'); setInterval(()=>{},60000);");
