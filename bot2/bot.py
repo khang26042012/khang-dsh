@@ -22,6 +22,7 @@ TOKEN    = ENV.get('DISCORD_TOKEN', '')
 API_BASE = ENV.get('API_BASE', 'https://1-production-6390.up.railway.app/v1').rstrip('/')
 API_KEY  = ENV.get('API_KEY', '')
 MODEL    = ENV.get('MODEL', 'openrouter/stealth/ox-alpha')
+MV = ENV.get('MODEL_VISION', 'Xkiro/deepseek/deepseek-v4-flash-vision-exp')
 RELAY    = ENV.get('RELAY_URL', 'http://127.0.0.1:26184')
 EXEC_K   = ENV.get('EXEC_SECRET', '')
 
@@ -101,13 +102,22 @@ def extract_first_json(txt):
                     return txt[start:i+1]
     return None
 
+def _has_image(messages):
+    for m in messages:
+        c = m.get('content')
+        if isinstance(c, list):
+            for part in c:
+                if isinstance(part, dict) and part.get('type') == 'image_url':
+                    return True
+    return False
+
 async def call_llm(messages):
     try:
         timeout = aiohttp.ClientTimeout(total=240)
         async with aiohttp.ClientSession(timeout=timeout) as ses:
             async with ses.post(API_BASE + '/chat/completions',
                                 headers={'Authorization': 'Bearer ' + API_KEY, 'Content-Type': 'application/json'},
-                                json={'model': MODEL, 'messages': messages}) as r:
+                                json={'model': (MV if _has_image(messages) else MODEL), 'messages': messages}) as r:
                 raw = await r.text()
         raw_json = extract_first_json(raw)
         if not raw_json:
