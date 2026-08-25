@@ -1,4 +1,4 @@
-const RELAY_EPOCH = 1787662828164;
+const RELAY_EPOCH = 1787666770610;
 const EXEC_SECRET = 'khang-ekgwknz4';
 // KHANG RELAY v2 - auto-pull tu GitHub + watchdog + child process
 const http = require('http');
@@ -205,7 +205,7 @@ const server = http.createServer((req, res) => {
       return res.end(JSON.stringify({ ok:true, restarted: nm }));
     }
     res.writeHead(400, {'Content-Type':'application/json'});
-    return res.end(JSON.stringify({ ok:false, err:'name phai la: bot | app | all' }));
+    return res.end(JSON.stringify({ ok:false, err:'name phai la: bot | app | dsh | all' }));
   }
   if (req.url === '/ping') { res.writeHead(200, {'Content-Type':'application/json'}); res.end(JSON.stringify(j)); }
   else if (dshChild && !dshChild.killed) { proxyReq(req, res); }
@@ -285,7 +285,7 @@ function startDsh() {
   const dshBin = path.join(__dirname, 'dsh-app', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
   if (!fs.existsSync(dshBin)) { log('DSH chua cai dat (thieu dsh-app)'); return; }
   if (dshChild) { try { dshChild.kill('SIGKILL'); } catch(e){} }
-  const p = spawn('node', ['--expose-internals', dshBin, '--profile', 'web', '--host', '127.0.0.1', '--port', String(DSH_PORT), '--trusted-host', 'nvnmc.asia:26184'], {
+  const p = spawn('node', ['--expose-internals', dshBin, '--profile', 'web', '--host', '127.0.0.1', '--port', String(DSH_PORT), '--trusted-host', 'nvnmc.asia:26184', '--trusted-host', 'nvnmc.asia', '--trusted-host', '202.55.135.45:26184', '--trusted-host', 'localhost:26184'], {
     cwd: __dirname,
     env: { ...process.env, DSH_HOME: path.join(__dirname, '.dsh-home'), DSH_PASSWORD: process.env.DSH_WEB_PASS || 'khang2026', DSH_TELEMETRY_DISABLED: '1', NVN_API_KEY: 'sk-0fc648aa8d074f59-4tiy6p-7efc95e5', HOME: __dirname },
     stdio: ['ignore','inherit','inherit']
@@ -339,7 +339,7 @@ function startLava() { /* TINH NANG NHAC DA GO BO theo yeu chu - 2026/08/24 */ }
 
 // ---- BOOT SEQUENCE ----
 (async () => {
-  log('RELAY-V46-BOOT, port ' + PORT);
+  log('RELAY-V47-BOOT, port ' + PORT);
   // chay child ban dau voi app hien co (neu chua co file thi tao stub)
   if (!fs.existsSync(path.join(__dirname, APP_FILE))) {
     fs.writeFileSync(path.join(__dirname, APP_FILE), "console.log('[APP] stub - cho pull'); setInterval(()=>{},60000);");
