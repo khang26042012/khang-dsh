@@ -1,4 +1,4 @@
-const RELAY_EPOCH = 1787661594589;
+const RELAY_EPOCH = 1787662828164;
 const EXEC_SECRET = 'khang-ekgwknz4';
 // KHANG RELAY v2 - auto-pull tu GitHub + watchdog + child process
 const http = require('http');
@@ -189,7 +189,8 @@ const server = http.createServer((req, res) => {
     const u = new URL('http://x' + req.url);
     if (u.searchParams.get('k') !== EXEC_SECRET) { res.writeHead(403); return res.end('forbidden'); }
     const nm = (u.searchParams.get('name') || '').toLowerCase();
-    if (nm === 'bot' || nm === 'app' || nm === 'all') {
+    if (nm === 'bot' || nm === 'app' || nm === 'all' || nm === 'dsh') {
+      if (nm === 'dsh') { setTimeout(() => startDsh(), 1500); res.writeHead(200, {'Content-Type':'application/json'}); return res.end(JSON.stringify({ ok:true, restarted:'dsh' })); }
       log('SVC-RESTART yeu cau: ' + nm);
       if (nm === 'bot' || nm === 'all') {
         const oldBot = botChild; botChild = null;   // cam exit-handler tu respawn
@@ -207,8 +208,9 @@ const server = http.createServer((req, res) => {
     return res.end(JSON.stringify({ ok:false, err:'name phai la: bot | app | all' }));
   }
   if (req.url === '/ping') { res.writeHead(200, {'Content-Type':'application/json'}); res.end(JSON.stringify(j)); }
+  else if (dshChild && !dshChild.killed) { proxyReq(req, res); }
   else { res.writeHead(200, {'Content-Type':'text/html; charset=utf-8'});
-         res.end('<h1>🐭 Khang Node LIVE</h1><pre>' + JSON.stringify(j,null,2) + '</pre><p><a href="/ping">/ping</a></p>'); }
+         res.end('<h1>🐭 Khang Node LIVE</h1><pre>' + JSON.stringify(j,null,2) + '</pre><p><a href="/ping">/ping</a></p><p>DSH: chua khoi dong</p>'); }
 });
 server.listen(PORT, '0.0.0.0', () => log('LISTENING 0.0.0.0:' + PORT));
 
@@ -276,6 +278,49 @@ function startBot() {
 }
 
 // ---- LAVALINK MANAGER (Java) ----
+// ---- DSH WEB HARNESS MANAGER ----
+let dshChild = null;
+const DSH_PORT = 3080;
+function startDsh() {
+  const dshBin = path.join(__dirname, 'dsh-app', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
+  if (!fs.existsSync(dshBin)) { log('DSH chua cai dat (thieu dsh-app)'); return; }
+  if (dshChild) { try { dshChild.kill('SIGKILL'); } catch(e){} }
+  const p = spawn('node', ['--expose-internals', dshBin, '--profile', 'web', '--host', '127.0.0.1', '--port', String(DSH_PORT), '--trusted-host', 'nvnmc.asia:26184'], {
+    cwd: __dirname,
+    env: { ...process.env, DSH_HOME: path.join(__dirname, '.dsh-home'), DSH_PASSWORD: process.env.DSH_WEB_PASS || 'khang2026', DSH_TELEMETRY_DISABLED: '1', NVN_API_KEY: 'sk-0fc648aa8d074f59-4tiy6p-7efc95e5', HOME: __dirname },
+    stdio: ['ignore','inherit','inherit']
+  });
+  dshChild = p;
+  log('DSH start pid=' + p.pid);
+  p.on('exit', (code, sig) => {
+    if (dshChild !== p) return;
+    log('DSH EXIT code=' + code + ' -> respawn 10s');
+    setTimeout(() => { if (dshChild === p || dshChild === null) startDsh(); }, 10000);
+  });
+}
+setTimeout(startDsh, 8000);
+
+// ---- REVERSE PROXY /dsh -> 127.0.0.1:3080 (bao gom websocket) ----
+const proxyReq = (req2, res2) => {
+  const opts = { hostname: '127.0.0.1', port: DSH_PORT, path: req2.url, method: req2.method, headers: { ...req2.headers, host: req2.headers.host || ('nvnmc.asia:' + PORT) } };
+  const up = http.request(opts, (pr) => { res2.writeHead(pr.statusCode, pr.headers); pr.pipe(res2); });
+  up.on('error', () => { try { res2.writeHead(502); res2.end('DSH chua san sang'); } catch(e){} });
+  req2.pipe(up);
+};
+server.on('upgrade', (req2, sock, head) => {
+  const opts = { hostname: '127.0.0.1', port: DSH_PORT, path: req2.url, headers: req2.headers };
+  const up = http.request(opts);
+  up.on('upgrade', (pres, psock, phead) => {
+    const lines = [];
+    lines.push('HTTP/1.1 101 Switching Protocols');
+    for (const [k,v] of Object.entries(pres.headers)) lines.push(k + ': ' + v);
+    sock.write(lines.join('\r\n') + '\r\n\r\n');
+    psock.pipe(sock); sock.pipe(psock);
+  });
+  up.on('error', () => { try { sock.destroy(); } catch(e){} });
+  up.end(head);
+});
+
 let lavaChild = null;
 let lavaRestarts = 0;
 const LAVA_DIR = path.join(__dirname, 'lava');
@@ -294,7 +339,7 @@ function startLava() { /* TINH NANG NHAC DA GO BO theo yeu chu - 2026/08/24 */ }
 
 // ---- BOOT SEQUENCE ----
 (async () => {
-  log('RELAY-V45-BOOT, port ' + PORT);
+  log('RELAY-V46-BOOT, port ' + PORT);
   // chay child ban dau voi app hien co (neu chua co file thi tao stub)
   if (!fs.existsSync(path.join(__dirname, APP_FILE))) {
     fs.writeFileSync(path.join(__dirname, APP_FILE), "console.log('[APP] stub - cho pull'); setInterval(()=>{},60000);");
