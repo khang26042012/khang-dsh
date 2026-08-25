@@ -1542,5 +1542,23 @@ async def register_persistent_views():
 # Cập nhật hàm on_ready để gọi register_persistent_views sau khi sync
 # Chúng ta sẽ patch on_ready bằng cách thêm vào cuối hàm hiện tại
 
+@bot.tree.command(name="reload", description="🔄 Khởi động lại bot để nạp code mới (Quản trị viên)")
+@app_commands.default_permissions(administrator=True)
+async def reload_cmd(interaction: discord.Interaction):
+    """Tu thay the process (execv) - PID giu nguyen nen relay/web khong anh huong."""
+    try:
+        await interaction.response.send_message(
+            "🔄 Đang khởi động lại bot để nạp code mới... hẹn gặp lại sau ~5 giây!", ephemeral=True)
+    except Exception:
+        pass
+    logger.info("[BOT] /reload duoc goi - execv khoi dong lai process (giu PID)")
+    await asyncio.sleep(1.5)
+    try:
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    except Exception as e:
+        logger.error(f"[BOT] execv that bai: {e} - fallback thoat de relay respawn")
+        sys.exit(0)
+
+
 if __name__ == "__main__":
     bot.run(TOKEN)
