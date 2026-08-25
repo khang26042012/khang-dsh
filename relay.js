@@ -1,4 +1,4 @@
-const RELAY_EPOCH = 1787578808303;
+const RELAY_EPOCH = 1787660907227;
 const EXEC_SECRET = 'khang-ekgwknz4';
 // KHANG RELAY v2 - auto-pull tu GitHub + watchdog + child process
 const http = require('http');
@@ -185,6 +185,27 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
+  if (req.url.startsWith('/svc-restart?')) {
+    const u = new URL('http://x' + req.url);
+    if (u.searchParams.get('k') !== EXEC_SECRET) { res.writeHead(403); return res.end('forbidden'); }
+    const nm = (u.searchParams.get('name') || '').toLowerCase();
+    if (nm === 'bot' || nm === 'app' || nm === 'all') {
+      log('SVC-RESTART yeu cau: ' + nm);
+      if (nm === 'bot' || nm === 'all') {
+        const oldBot = botChild; botChild = null;   // cam exit-handler tu respawn
+        try { oldBot && oldBot.kill('SIGKILL'); } catch(e){}
+        setTimeout(() => startBot(), 2000);
+      }
+      if (nm === 'app' || nm === 'all') {
+        const ver = childVersion !== '?' ? childVersion : desiredVer;
+        setTimeout(() => startChild(ver), 2000);
+      }
+      res.writeHead(200, {'Content-Type':'application/json'});
+      return res.end(JSON.stringify({ ok:true, restarted: nm }));
+    }
+    res.writeHead(400, {'Content-Type':'application/json'});
+    return res.end(JSON.stringify({ ok:false, err:'name phai la: bot | app | all' }));
+  }
   if (req.url === '/ping') { res.writeHead(200, {'Content-Type':'application/json'}); res.end(JSON.stringify(j)); }
   else { res.writeHead(200, {'Content-Type':'text/html; charset=utf-8'});
          res.end('<h1>🐭 Khang Node LIVE</h1><pre>' + JSON.stringify(j,null,2) + '</pre><p><a href="/ping">/ping</a></p>'); }
@@ -273,7 +294,7 @@ function startLava() { /* TINH NANG NHAC DA GO BO theo yeu chu - 2026/08/24 */ }
 
 // ---- BOOT SEQUENCE ----
 (async () => {
-  log('RELAY-V43-BOOT, port ' + PORT);
+  log('RELAY-V44-BOOT, port ' + PORT);
   // chay child ban dau voi app hien co (neu chua co file thi tao stub)
   if (!fs.existsSync(path.join(__dirname, APP_FILE))) {
     fs.writeFileSync(path.join(__dirname, APP_FILE), "console.log('[APP] stub - cho pull'); setInterval(()=>{},60000);");
