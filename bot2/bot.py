@@ -64,6 +64,7 @@ CODE FRONTEND: Next.js 15 App Router, dan dau dong 'use client' khi dung hook/ev
 PHONG CACH: tieng Viet ngan gon, vi du thuc te. Khi nhan anh: mo ta va phan tich chi tiet noi dung anh."""
 
 history = defaultdict(lambda: deque(maxlen=14))
+auto_reply = defaultdict(lambda: True)
 
 def build_messages(cid, user_content):
     msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -71,20 +72,64 @@ def build_messages(cid, user_content):
     msgs.append({"role": "user", "content": user_content})
     return msgs
 
+def extract_first_json(txt):
+    DQ = chr(34)
+    BS = chr(92)
+    start = txt.find('{')
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(txt)):
+        ch = txt[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == BS:
+                esc = True
+            elif ch == DQ:
+                in_str = False
+        else:
+            if ch == DQ:
+                in_str = True
+            elif ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    return txt[start:i+1]
+    return None
+
 async def call_llm(messages):
     try:
-        timeout = aiohttp.ClientTimeout(total=180)
+        timeout = aiohttp.ClientTimeout(total=240)
         async with aiohttp.ClientSession(timeout=timeout) as ses:
             async with ses.post(API_BASE + '/chat/completions',
                                 headers={'Authorization': 'Bearer ' + API_KEY, 'Content-Type': 'application/json'},
                                 json={'model': MODEL, 'messages': messages}) as r:
-                if r.status != 200:
-                    return '[Loi %s tu router] %s' % (r.status, (await r.text())[:250])
-                data = await r.json()
-                return data['choices'][0]['message']['content'] or '(rong)'
+                raw = await r.text()
+        raw_json = extract_first_json(raw)
+        if not raw_json:
+            return '[Router tra body loi] ' + raw[:200]
+        data = json.loads(raw_json)
+        if isinstance(data, dict) and data.get('error'):
+            err = data['error']
+            em = err.get('message', '') if isinstance(err, dict) else str(err)
+            low_em = em.lower()
+            if 'rate' in low_em or 'limit' in low_em or '429' in low_em:
+                return '[Het luot free mot chut - thu lai sau vai giay nhe]'
+            return '[Router bao loi] ' + em[:250]
+        choice = (data.get('choices') or [{}])[0]
+        m = choice.get('message', {})
+        c = m.get('content')
+        if not c or not str(c).strip():
+            c = m.get('reasoning') or m.get('reasoning_content') or ''
+        if not str(c).strip():
+            return '(Model chi suy nghi chua kip tra loi - thu lai nhe)'
+        return c
     except Exception as e:
         return '[Loi ket noi router] ' + str(e)[:200]
-
 async def build_user_content(message, prompt):
     parts = []
     for att in message.attachments:
@@ -165,7 +210,9 @@ async def on_message(message):
     if message.reference and isinstance(message.reference.resolved, discord.Message):
         ref_bot = message.reference.resolved.author.id == bot.user.id
     is_dm = message.guild is None
-    if not (mentioned or ref_bot or is_dm):
+    mentions_other_bot = any(u.bot and u.id != bot.user.id for u in message.mentions)
+    should_ai = (mentioned or ref_bot or is_dm) or (auto_reply[message.channel.id] and not mentions_other_bot)
+    if not should_ai:
         return
     stripped = message.content.lstrip('!?/ ').strip()
     low = stripped.lower()
@@ -186,6 +233,18 @@ async def on_message(message):
         return
     if low == 'status':
         await message.reply(await relay_status())
+        return
+    if low.startswith('auto'):
+        parts_ = stripped.split()
+        arg = parts_[1].lower() if len(parts_) > 1 else ''
+        if arg == 'on':
+            auto_reply[message.channel.id] = True
+            await message.reply('BAT auto-reply cho kenh nay.')
+        elif arg == 'off':
+            auto_reply[message.channel.id] = False
+            await message.reply('TAT auto-reply cho kenh nay.')
+        else:
+            await message.reply('Dung: !auto on  hoac  !auto off')
         return
     if low == 'clear':
         history[message.channel.id].clear()
