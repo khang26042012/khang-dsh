@@ -121,6 +121,7 @@ function appFromReferer(reqLike) {
 }
 
 const server = http.createServer((req, res) => {
+  try { fs.appendFileSync("/tmp/hits.log", req.method + " " + req.url + "\n"); } catch(e) {}
   const j = { ok: true, service: 'khang-relay', ver: childVersion, boots_ok: true,
               uptime_s: Math.floor((Date.now()-startedAt)/1000),
               child_alive: !!child && child.exitCode === null, restarts: restartCount,
@@ -128,6 +129,7 @@ const server = http.createServer((req, res) => {
               bot2_alive: typeof bot2Child !== 'undefined' && !!bot2Child && bot2Child.exitCode === null, bot2_restarts: (typeof bot2Restarts !== 'undefined' ? bot2Restarts : 0),
               gw_alive: typeof gwChild !== 'undefined' && !!gwChild && gwChild.exitCode === null,
               dsh_child_alive: typeof dshChild !== 'undefined' && !!dshChild && dshChild.exitCode === null };
+  if (req.url === '/verx') { res.writeHead(200); return res.end('EPOCH=' + RELAY_EPOCH); }
   if (req.url === '/apps') {
     let ds = [];
     try { ds = fs.readdirSync(path.join(__dirname, "apps")).filter(function(d){ return fs.existsSync(path.join(__dirname, "apps", d, "PORT.txt")); }); } catch(e) {}
