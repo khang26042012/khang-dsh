@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
-"""KHANG DEV BOT - tro ly lap trinh tren host (frontend coder companion)."""
-import os, sys, json, asyncio, logging
+"""KHANG DEV BOT v3 - AGENTIC LOOP kieu harness:
+Moi buoc = 1 lan goi API, prefix on dinh de an PROMPT CACHE,
+co sleep/backoff khi bi rate-limit, va co tools cay duong that tren host."""
+import os, sys, json, time, base64, shlex, logging, subprocess, asyncio
 from collections import deque, defaultdict
+from pathlib import Path
 import aiohttp
 import discord
 from discord import app_commands
@@ -19,59 +22,80 @@ if os.path.exists(_env):
             ENV[k.strip()] = v.strip()
 
 TOKEN    = ENV.get('DISCORD_TOKEN', '')
-API_BASE = ENV.get('API_BASE', 'https://1-production-6390.up.railway.app/v1').rstrip('/')
+API_BASE = ENV.get('API_BASE', '').rstrip('/')
 API_KEY  = ENV.get('API_KEY', '')
-MODEL    = ENV.get('MODEL', 'openrouter/stealth/ox-alpha')
-MV = ENV.get('MODEL_VISION', 'Xkiro/deepseek/deepseek-v4-flash-vision-exp')
+MODEL    = ENV.get('MODEL', '')
+MV       = ENV.get('MODEL_VISION', MODEL)
 RELAY    = ENV.get('RELAY_URL', 'http://127.0.0.1:26184')
 EXEC_K   = ENV.get('EXEC_SECRET', '')
+WORKDIR  = '/home/container'
+MAX_STEPS     = int(ENV.get('MAX_STEPS', '10'))
+MAX_TOKENS    = int(ENV.get('MAX_TOKENS', '16384'))
 
 intents = discord.Intents.default()
 intents.message_content = True
 bot = discord.Client(intents=intents)
 tree = app_commands.CommandTree(bot)
 
-SYSTEM_PROMPT = """Ban la Khang Dev Bot - tro ly lap trinh cua chu Phan Trong Khang, lam viec TRUC TIEP tren host Khang server (Pterodactyl Linux container).
+SYSTEM_PROMPT = """Ban la Khang Dev Bot - CODING AGENT chay truc tiep tren host Khang server (Linux container). Ban lam viec theo vong lap AGENT: moi luot ban tra loi co the la (a) cau tra loi cuoi cung cho nguoi dung, HOAC (b) goi mot TOOL roi cho ket qua ban se suy nghi tiep o luot sau.
+
+CONG CU BAN CO THE GOI - viet trong the <tool> nhu vay (co the goi nhieu tool trong 1 luot):
+<tool>{"name":"run_cmd","args":{"cmd":"ls src/app","cwd":"/home/container/cloner","timeout":60}}</tool>
+<tool>{"name":"read_file","args":{"path":"/home/container/cloner/package.json"}}</tool>
+<tool>{"name":"write_file","args":{"path":"/home/container/cloner/src/app/page.tsx","content":"...noi dung day du..."}}</tool>
+<tool>{"name":"sleep","args":{"seconds":20}}</tool>
+
+Y NGHIA:
+- run_cmd: chay lenh shell tai thu muc cwd (mac dinh /home/container/cloner). Binh duoc phep: python3 node npx npm git ls cat grep sed find touch mkdir cp mv tar echo curl chmod pip3. Timeout toi da 180s. Ket qua bi cat gioi han ~3500 ky tu.
+- read_file: doc file text (toi da 6000 ky tu dau).
+- write_file: ghi file (tao thu muc cha neu thieu). LUON viet content DAY DU khong rut gon.
+- sleep: nghi seconds giay (<=120). DUNG sau khi khoi lenh dai nhu npm install/build roi kiem tra lai.
+
+QUY TRINH LAM VIEC CHUAN:
+1. Truoc khi sua code: doc file hien tai bang read_file de hieu boi canh.
+2. Sua xong: run_cmd kiem tra (vd: npx tsc --noEmit hoac npm run build neu nhanh).
+3. Voi lenh dai (npm install/build): goi run_cmd voi timeout lon, neu het gio thi sleep roi kiem tra trang thai.
+4. Khi thay doi lon xong: git add -A && git commit -m "mo ta" && git push origin main.
+5. Tra loi cuoi cung ngan gon: da lam gi, ket qua the nao, buoc tiep theo la gi.
 
 MOI TRUONG:
-- Du an frontend: /home/container/cloner - Next.js 15 App Router + TypeScript + Tailwind + shadcn/ui (tu template ai-website-cloner-template).
-- Chia doi cong viec: mot coder khac lam FRONTEND; ban ho tro backend/hau can va giai dap moi ky thuat.
-- Relay dich vu tai http://127.0.0.1:26184:
-    GET /ping -> trang thai app.js/bot/bot2/dsh
-    POST /svc-restart?k=<secret>&name=app|bot|bot2|dsh|all -> reset rieng le khong anh huong service khac
-    POST /exec?k=<secret> body {"cmd":"..."} -> chay lenh host (allowlist bash/python3/git/node/curl/...)
-- DSH web harness o port noi bo 3080, proxy ra public.
+- Du an frontend: /home/container/cloner - Next.js 15 App Router + TypeScript + Tailwind + shadcn/ui.
+- TUYET DOI khong chay lenh nang tren may chu Minecraft (KhangSMP/KhangSMP2 co nguoi choi)! Moi thao tac chi trong /home/container.
+- Port web cloner la 30008. Khong dung 26184 (relay) va 3080 (dsh).
+- RAM chung ~4.5GB: npm install lon nen them NODE_OPTIONS=--max-old-space-size=3072.
 
-GIT CHUAN (remote da cam token, push truc tiep duoc):
-    cd /home/container/cloner
-    git add -A && git commit -m "mo ta"
-    git push origin main
-    # neu mang chan github -> them tien to mirror: https://ghproxy.net/<url_daydu>
+PHONG CACH: tieng Viet, dan thuc te, khong dai dong. Khi nhan anh: phan tich noi dung anh truoc khi hanh dong."""
 
-RESET CHUAN:
-    - Frontend dev mode: hot reload, khong can restart. Production: svc-restart name=app
-    - Bot: /reload (execv giu PID) hoac svc-restart name=bot
-    - all: chi khi that su can.
-
-PHAM VI DEPLOY - DOC KY - SAI LA CHET:
-- Container nay (Khang host) LA NOI DUY NHAT duoc phep chay lenh nang (npm install/build/start). Tat ca thao tac code deu tai /home/container/cloner.
-- TUYET DOI KHONG huong dan, goi y, hoac tao lenh de chay bat ky gi tren cac MAY CHU MINECRAFT (KhangSMP, KhangSMP2 - dang co nguoi choi online)! Chi 1 lan npm install o day cung lam lag/cai chet ca may chu game. Neu nguoi dung hoi ve deploy tren MC host: tu choi nem nhe va huong ve day.
-- Truoc moi lenh nang: (1) pwd xac nhan dung thu muc, (2) git commit truoc da, (3) npm/install lon thi them NODE_OPTIONS=--max-old-space-size=3072 vi container chung song voi relay + 2 bot + dsh web (tran ~4.5GB RAM).
-- Chay web cloner: DEV: cd /home/container/cloner && npm run dev -- -p 30008 | PRODUCTION: npm run build && npm start -- -p 30008. Port 30008 danh rieng cho no; KHONG DUNG port 26184 (relay) va 3080 (dsh web).
-- Sau thay doi lon: git commit + push NGAY de co backup.
-
-CODE FRONTEND: Next.js 15 App Router, dan dau dong 'use client' khi dung hook/event, Tailwind utilities, shadcn/ui, Route Handlers tai src/app/api/*/route.ts tra JSON. Viet code day du import, chay duoc ngay.
-
-PHONG CACH: tieng Viet ngan gon, vi du thuc te. Khi nhan anh: mo ta va phan tich chi tiet noi dung anh."""
-
-history = defaultdict(lambda: deque(maxlen=14))
+history = defaultdict(lambda: deque(maxlen=16))
 auto_reply = defaultdict(lambda: True)
 
-def build_messages(cid, user_content):
-    msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
-    msgs.extend(history[cid])
-    msgs.append({"role": "user", "content": user_content})
-    return msgs
+# ---------- HTTP / PARSE HELPERS ----------
+def extract_first_json(txt):
+    start = txt.find('{')
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(txt)):
+        ch = txt[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == chr(92):
+                esc = True
+            elif ch == chr(34):
+                in_str = False
+        else:
+            if ch == chr(34):
+                in_str = True
+            elif ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    return txt[start:i+1]
+    return None
 
 def collect_sse(txt):
     total = []
@@ -93,35 +117,6 @@ def collect_sse(txt):
                 total.append(piece)
     return ''.join(total)
 
-def extract_first_json(txt):
-    DQ = chr(34)
-    BS = chr(92)
-    start = txt.find('{')
-    if start == -1:
-        return None
-    depth = 0
-    in_str = False
-    esc = False
-    for i in range(start, len(txt)):
-        ch = txt[i]
-        if in_str:
-            if esc:
-                esc = False
-            elif ch == BS:
-                esc = True
-            elif ch == DQ:
-                in_str = False
-        else:
-            if ch == DQ:
-                in_str = True
-            elif ch == '{':
-                depth += 1
-            elif ch == '}':
-                depth -= 1
-                if depth == 0:
-                    return txt[start:i+1]
-    return None
-
 def _has_image(messages):
     for m in messages:
         c = m.get('content')
@@ -131,38 +126,152 @@ def _has_image(messages):
                     return True
     return False
 
+async def llm_once(messages):
+    """Mot lan goi API - tra (text, err). Khong retry o day."""
+    timeout = aiohttp.ClientTimeout(total=300)
+    async with aiohttp.ClientSession(timeout=timeout) as ses:
+        async with ses.post(API_BASE + '/chat/completions',
+                            headers={'Authorization': 'Bearer ' + API_KEY, 'Content-Type': 'application/json'},
+                            json={'model': (MV if _has_image(messages) else MODEL),
+                                  'messages': messages, 'max_tokens': MAX_TOKENS}) as r:
+            raw = await r.text()
+    sse = collect_sse(raw)
+    if sse.strip():
+        return sse, None
+    rj = extract_first_json(raw)
+    if not rj:
+        return None, '[Router tra body loi] ' + raw[:150]
+    data = json.loads(rj)
+    if isinstance(data, dict) and data.get('error'):
+        err = data['error']
+        em = err.get('message', '') if isinstance(err, dict) else str(err)
+        return None, em[:250]
+    choice = (data.get('choices') or [{}])[0]
+    m = choice.get('message', {})
+    c = m.get('content')
+    if not c or not str(c).strip():
+        c = m.get('reasoning') or m.get('reasoning_content') or ''
+    if not str(c).strip():
+        return None, '(tra loi rong)'
+    return str(c), None
+
 async def call_llm(messages):
+    """Goi API co RETRY + SLEEP backoff mu: 3s -> 8s -> 20s khi loi/429."""
+    waits = [0, 3, 8, 20]
+    last_err = ''
+    for attempt, w in enumerate(waits):
+        if w:
+            log.info('retry %ds sau loi: %s', w, last_err[:80])
+            await asyncio.sleep(w)
+        txt, err = await llm_once(messages)
+        if txt is not None:
+            return txt
+        last_err = err or ''
+        low = last_err.lower()
+        if 'rate' in low or 'limit' in low or '429' in low:
+            continue
+        if attempt >= 1:
+            break
+    return '[Loi router sau retry] ' + last_err[:200]
+
+# ---------- TOOL EXECUTOR ----------
+ALLOW_BINS = {'python3','node','npx','npm','git','ls','cat','grep','sed','find','touch','mkdir','cp','mv','tar','echo','curl','chmod','pip3'}
+def _safe_cmd(cmd):
     try:
-        timeout = aiohttp.ClientTimeout(total=240)
-        async with aiohttp.ClientSession(timeout=timeout) as ses:
-            async with ses.post(API_BASE + '/chat/completions',
-                                headers={'Authorization': 'Bearer ' + API_KEY, 'Content-Type': 'application/json'},
-                                json={'model': (MV if _has_image(messages) else MODEL), 'messages': messages, 'max_tokens': 16384}) as r:
-                raw = await r.text()
-        sse_text = collect_sse(raw)
-        if sse_text.strip():
-            return sse_text
-        raw_json = extract_first_json(raw)
-        if not raw_json:
-            return '[Router tra body loi] ' + raw[:200]
-        data = json.loads(raw_json)
-        if isinstance(data, dict) and data.get('error'):
-            err = data['error']
-            em = err.get('message', '') if isinstance(err, dict) else str(err)
-            low_em = em.lower()
-            if 'rate' in low_em or 'limit' in low_em or '429' in low_em:
-                return '[Het luot free mot chut - thu lai sau vai giay nhe]'
-            return '[Router bao loi] ' + em[:250]
-        choice = (data.get('choices') or [{}])[0]
-        m = choice.get('message', {})
-        c = m.get('content')
-        if not c or not str(c).strip():
-            c = m.get('reasoning') or m.get('reasoning_content') or ''
-        if not str(c).strip():
-            return '(Model chi suy nghi chua kip tra loi - thu lai nhe)'
-        return c
+        parts = shlex.split(cmd)
+    except Exception:
+        return False
+    return bool(parts) and parts[0] in ALLOW_BINS
+
+def _inside_workdir(pth):
+    rp = os.path.realpath(pth)
+    return rp.startswith(WORKDIR)
+
+def exec_tool(name, args):
+    try:
+        if name == 'run_cmd':
+            cmd = str(args.get('cmd', ''))[:500]
+            cwd = args.get('cwd') or os.path.join(WORKDIR, 'cloner')
+            tmo = min(int(args.get('timeout', 60)), 180)
+            if not _inside_workdir(str(cwd)):
+                return '[TU CHOI] cwd phai nam trong /home/container'
+            if not _safe_cmd(cmd):
+                return '[TU CHOI] lenh khong thuoc danh sach cho phep: ' + cmd[:100]
+            pr = subprocess.run(cmd, shell=True, cwd=str(cwd), capture_output=True, text=True, timeout=tmo)
+            out = ((pr.stdout or '') + (chr(10) + pr.stderr if pr.stderr else ''))[-3500:]
+            return ('exit=' + str(pr.returncode) + chr(10) + out) if out.strip() else 'exit=0 (khong output)'
+        if name == 'read_file':
+            pth = str(args.get('path', ''))
+            if not _inside_workdir(pth):
+                return '[TU CHOI] path ngoai pham vi'
+            data = Path(pth).read_text(encoding='utf-8', errors='replace')
+            return data[:6000] + (chr(10) + '...(cat)' if len(data) > 6000 else '')
+        if name == 'write_file':
+            pth = str(args.get('path', ''))
+            content = str(args.get('content', ''))
+            if not _inside_workdir(pth):
+                return '[TU CHOI] path ngoai pham vi'
+            Path(pth).parent.mkdir(parents=True, exist_ok=True)
+            Path(pth).write_text(content, encoding='utf-8')
+            return 'DA GHI ' + pth + ' (' + str(len(content)) + ' ky tu)'
+        if name == 'sleep':
+            sec = max(1, min(int(float(args.get('seconds', 5))), 120))
+            time.sleep(sec)
+            return 'da nghi ' + str(sec) + 's'
+        return '[LOI] tool khong ton tai: ' + name
+    except subprocess.TimeoutExpired:
+        return '[HET GIO] lenh chua xong trong timeout - dung sleep roi kiem tra lai'
     except Exception as e:
-        return '[Loi ket noi router] ' + str(e)[:200]
+        return '[LOI TOOL] ' + str(e)[:200]
+
+def parse_tools(text):
+    calls = []
+    tag_a = '<tool>'
+    tag_b = '</tool>'
+    pos = 0
+    while True:
+        i = text.find(tag_a, pos)
+        if i == -1:
+            break
+        j = text.find(tag_b, i)
+        if j == -1:
+            break
+        body = text[i+len(tag_a):j].strip()
+        try:
+            obj = json.loads(extract_first_json(body) or body)
+            if isinstance(obj, dict) and obj.get('name'):
+                calls.append((obj['name'], obj.get('args') or {}))
+        except Exception:
+            pass
+        pos = j + len(tag_b)
+    return calls
+
+# ---------- AGENT LOOP ----------
+async def run_agent(cid, user_content):
+    msgs = [{'role': 'system', 'content': SYSTEM_PROMPT}]
+    msgs.extend(history[cid])
+    msgs.append({'role': 'user', 'content': user_content})
+    final = None
+    for step in range(MAX_STEPS):
+        reply = await call_llm(msgs)
+        calls = parse_tools(reply)
+        if not calls:
+            final = reply
+            break
+        msgs.append({'role': 'assistant', 'content': reply})
+        feedback = []
+        for name, args in calls[:4]:
+            res = await asyncio.get_event_loop().run_in_executor(None, exec_tool, name, dict(args))
+            feedback.append('[KET QUA ' + name + '] ' + str(res))
+            log.info('step %d tool %s -> %d chars', step, name, len(str(res)))
+        msgs.append({'role': 'user', 'content': chr(10).join(feedback) + chr(10) + 'Tiep tuc: tra loi cuoi cung hoac goi tool ke tiep.'})
+    if final is None:
+        final = '(dung o buoc ' + str(MAX_STEPS) + ' - nhac "!tiep" de cho chay tiep)'
+    # Luu lich su rut gon (giu prefix on dinh de an cache)
+    history[cid].append({'role': 'user', 'content': str(user_content)[:800] if isinstance(user_content, str) else '(tin nhan kem anh)'})
+    history[cid].append({'role': 'assistant', 'content': str(final)[:2500]})
+    return final
+
 async def build_user_content(message, prompt):
     parts = []
     for att in message.attachments:
@@ -170,7 +279,6 @@ async def build_user_content(message, prompt):
         if ct.startswith('image/') and att.size <= 6000000:
             try:
                 raw = await att.read()
-                import base64
                 b64 = base64.b64encode(raw).decode()
                 parts.append({'type': 'image_url', 'image_url': {'url': 'data:%s;base64,%s' % (ct, b64)}})
             except Exception as e:
@@ -179,24 +287,13 @@ async def build_user_content(message, prompt):
         return [{'type': 'text', 'text': prompt}] + parts
     return prompt
 
-def chunk(text, limit=1900):
-    out = []
-    while len(text) > limit:
-        cut = text.rfind('\n', 0, limit)
-        if cut == -1:
-            cut = limit
-        out.append(text[:cut])
-        text = text[cut:].lstrip()
-    out.append(text)
-    return out
-
 def help_embed():
-    e = discord.Embed(title='Khangu Dev Bot - Lenh', color=0x5865F2)
-    e.add_field(name='Chat AI', value='@mention / reply / DM - tu dong tra loi, ho tro gui ANH', inline=False)
-    e.add_field(name='!ping', value='Do tre', inline=True)
-    e.add_field(name='!status', value='Trang thai host', inline=True)
-    e.add_field(name='!reset <ten>', value='app|bot|bot2|dsh|all (Admin)', inline=True)
-    e.add_field(name='!clear', value='Xoa nho kenh', inline=True)
+    e = discord.Embed(title='Khang Dev Bot v3 (AGENT MODE)', color=0x5865F2)
+    e.add_field(name='Agent loop', value='@mention/reply/DM hoac chat bat ky (!auto on) - tu doc/ghi file, chay lenh, build, commit & push', inline=False)
+    e.add_field(name='Tools', value='run_cmd | read_file | write_file | sleep (tu goi khi can)', inline=False)
+    e.add_field(name='Anh', value='Gui anh kem cau hoi - tu dong chuyen model vision', inline=False)
+    e.add_field(name='!status / !reset <ten>', value='Trang thai host / reset rieng le (Admin)', inline=True)
+    e.add_field(name='!clear / !auto on|off / !ping', value='Quan ly kenh', inline=True)
     return e
 
 async def relay_restart(name):
@@ -230,7 +327,7 @@ async def on_ready():
     log.info('Dang nhap OK: %s (ID %s)', bot.user, bot.user.id)
     try:
         await tree.sync()
-        log.info('Slash commands synced')
+        log.info('Slash synced')
     except Exception as e:
         log.warning('sync slash loi: %s', e)
 
@@ -238,65 +335,54 @@ async def on_ready():
 async def on_message(message):
     if message.author.id == bot.user.id or message.author.bot:
         return
-    mentioned = bot.user in message.mentions
-    ref_bot = False
-    if message.reference and isinstance(message.reference.resolved, discord.Message):
-        ref_bot = message.reference.resolved.author.id == bot.user.id
-    is_dm = message.guild is None
-    mentions_other_bot = any(u.bot and u.id != bot.user.id for u in message.mentions)
-    should_ai = (mentioned or ref_bot or is_dm) or (auto_reply[message.channel.id] and not mentions_other_bot)
-    if not should_ai:
-        return
     stripped = message.content.lstrip('!?/ ').strip()
     low = stripped.lower()
     if low == 'ping':
-        await message.reply('Pong! %sms' % round(bot.latency * 1000))
-        return
+        await message.reply('Pong! %sms' % round(bot.latency * 1000)); return
     if low in ('help', 'lenh'):
-        await message.reply(embed=help_embed())
-        return
+        await message.reply(embed=help_embed()); return
     if low.startswith('reset'):
         if not message.author.guild_permissions.administrator:
-            await message.reply('Can quyen Administrator!')
-            return
+            await message.reply('Can quyen Administrator!'); return
         parts_ = stripped.split()
         target = parts_[1] if len(parts_) > 1 else 'app'
         okk, msgg = await relay_restart(target)
-        await message.reply(('OK: ' if okk else 'LOI: ') + msgg[:300])
-        return
+        await message.reply(('OK: ' if okk else 'LOI: ') + msgg[:300]); return
     if low == 'status':
-        await message.reply(await relay_status())
-        return
+        await message.reply(await relay_status()); return
+    if low == 'clear':
+        history[message.channel.id].clear()
+        await message.reply('Da xoa nho kenh nay.'); return
     if low.startswith('auto'):
         parts_ = stripped.split()
         arg = parts_[1].lower() if len(parts_) > 1 else ''
         if arg == 'on':
-            auto_reply[message.channel.id] = True
-            await message.reply('BAT auto-reply cho kenh nay.')
+            auto_reply[message.channel.id] = True; await message.reply('BAT auto-reply.')
         elif arg == 'off':
-            auto_reply[message.channel.id] = False
-            await message.reply('TAT auto-reply cho kenh nay.')
+            auto_reply[message.channel.id] = False; await message.reply('TAT auto-reply.')
         else:
-            await message.reply('Dung: !auto on  hoac  !auto off')
+            await message.reply('Dung: !auto on | !auto off')
         return
-    if low == 'clear':
-        history[message.channel.id].clear()
-        await message.reply('Da xoa nho kenh nay.')
+    mentioned = bot.user in message.mentions
+    mentions_other_bot = any(u.bot and u.id != bot.user.id for u in message.mentions)
+    ref_bot = False
+    if message.reference and isinstance(message.reference.resolved, discord.Message):
+        ref_bot = message.reference.resolved.author.id == bot.user.id
+    is_dm = message.guild is None
+    if not ((mentioned or ref_bot or is_dm) or (auto_reply[message.channel.id] and not mentions_other_bot)):
         return
     prompt = message.content.replace('<@%s>' % bot.user.id, '').strip() or 'Phan tich tin nhan nay.'
     async with message.channel.typing():
         content = await build_user_content(message, prompt)
-        answer = await call_llm(build_messages(message.channel.id, content))
-        history[message.channel.id].append({'role': 'user', 'content': prompt[:500]})
-        history[message.channel.id].append({'role': 'assistant', 'content': str(answer)[:1500]})
-    for part in chunk(str(answer)):
-        await message.reply(part[:1900])
+        answer = await run_agent(message.channel.id, content)
+    for i in range(0, len(str(answer)), 1900):
+        await message.reply(str(answer)[i:i+1900])
 
 @tree.command(name='ping', description='Do tre bot')
 async def ping_cmd(inter):
     await inter.response.send_message('Pong! %sms' % round(bot.latency * 1000))
 
-@tree.command(name='help', description='Danh sach lenh')
+@tree.command(name='help', description='Huong dan')
 async def help_cmd(inter):
     await inter.response.send_message(embed=help_embed())
 
@@ -304,24 +390,24 @@ async def help_cmd(inter):
 async def status_cmd(inter):
     await inter.response.send_message(await relay_status())
 
-@tree.command(name='clear', description='Xoa nho hoi thoai kenh nay')
+@tree.command(name='clear', description='Xoa nho kenh nay')
 async def clear_cmd(inter):
     history[inter.channel_id].clear()
     await inter.response.send_message('Da xoa nho.', ephemeral=True)
 
-@tree.command(name='reset', description='Reset service tren host (Admin)')
+@tree.command(name='reset', description='Reset service (Admin)')
 @app_commands.describe(target='app | bot | bot2 | dsh | all')
 @app_commands.default_permissions(administrator=True)
 async def reset_cmd(inter, target: str):
     okk, msgg = await relay_restart(target)
     await inter.response.send_message(('OK: ' if okk else 'LOI: ') + msgg[:300], ephemeral=True)
 
-if not TOKEN:
-    print('[BOT2] THIEU DISCORD_TOKEN trong .env - thoat de khong respawn vo nghia')
-    sys.exit(1)
-
-try:
-    bot.run(TOKEN, log_handler=None)
-except discord.errors.LoginFailure:
-    print('[BOT2] TOKEN SAI/HET HAN')
-    sys.exit(1)
+if __name__ == '__main__':
+    if not TOKEN or not API_BASE or not MODEL:
+        print('[BOT2] THIEU CONFIG trong .env - thoat')
+        sys.exit(1)
+    try:
+        bot.run(TOKEN, log_handler=None)
+    except discord.errors.LoginFailure:
+        print('[BOT2] TOKEN SAI/HET HAN')
+        sys.exit(1)
