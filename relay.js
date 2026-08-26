@@ -236,13 +236,13 @@ let botChild = null;
 let botRestarts = 0;
 const BOT_DIR = path.join(__dirname, 'bot');
 function startBot() {
-  killOrphans(['bot.py']);
+  killOrphans(['--svc=main']);
   const envFile = path.join(BOT_DIR, '.env');
   if (!fs.existsSync(envFile)) { log('BOT DORMANT - chua co bot/.env (token)'); return; }
   if (!fs.existsSync(path.join(BOT_DIR, 'requirements.txt'))) { log('BOT thieu requirements.txt'); return; }
   const doSpawn = () => {
     if (botChild) { try { botChild.kill(); } catch(e){} }
-    const b = spawn('python3', ['bot.py'], { cwd: BOT_DIR, stdio: ['ignore','inherit','inherit'] });
+    const b = spawn('python3', ['bot.py', '--svc=main'], { cwd: BOT_DIR, stdio: ['ignore','inherit','inherit'] });
     botChild = b;
     log('BOT start pid=' + b.pid);
     b.on('exit', (code, sig) => {
@@ -300,9 +300,9 @@ let bot2Child = null;
 let bot2Restarts = 0;
 const BOT2_DIR = path.join(__dirname, 'bot2');
 function startBot2() {
-  killOrphans(['bot2.py']);
+  killOrphans(['--svc=dev']);
   if (!fs.existsSync(path.join(BOT2_DIR, '.env'))) { log('BOT2 DORMANT - chua co bot2/.env'); return; }
-  const p = spawn('python3', ['bot.py'], { cwd: BOT2_DIR, stdio: ['ignore','inherit','inherit'] });
+  const p = spawn('python3', ['bot.py', '--svc=dev'], { cwd: BOT2_DIR, stdio: ['ignore','inherit','inherit'] });
   bot2Child = p;
   log('BOT2 start pid=' + p.pid);
   p.on('exit', (code, sig) => {
