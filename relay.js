@@ -101,6 +101,25 @@ async function _pull(manual) {
 
 // ---- HTTP PUBLIC ----
 let startedAt = Date.now();
+// ---- APP BRIDGE helpers: /app/<ten> -> 127.0.0.1:<PORT.txt> ----
+const APP_PORT_CACHE = {};
+function appPort(name) {
+  const now = Date.now();
+  if (APP_PORT_CACHE[name] && now - APP_PORT_CACHE[name].t < 5000) return APP_PORT_CACHE[name].port;
+  let port = null;
+  try { port = parseInt(fs.readFileSync(path.join(__dirname, "apps", name, "PORT.txt"), "utf8").trim(), 10) || null; } catch(e) {}
+  APP_PORT_CACHE[name] = { t: now, port: port };
+  return port;
+}
+function appFromReferer(reqLike) {
+  const ref = (reqLike.headers && reqLike.headers.referer) || "";
+  const i0 = ref.indexOf("/app/");
+  if (i0 === -1) return null;
+  const rest = ref.slice(i0 + 5);
+  const nm = rest.split("/")[0].split("?")[0];
+  return nm || null;
+}
+
 const server = http.createServer((req, res) => {
   const j = { ok: true, service: 'khang-relay', ver: childVersion, boots_ok: true,
               uptime_s: Math.floor((Date.now()-startedAt)/1000),
@@ -109,6 +128,31 @@ const server = http.createServer((req, res) => {
               bot2_alive: typeof bot2Child !== 'undefined' && !!bot2Child && bot2Child.exitCode === null, bot2_restarts: (typeof bot2Restarts !== 'undefined' ? bot2Restarts : 0),
               gw_alive: typeof gwChild !== 'undefined' && !!gwChild && gwChild.exitCode === null,
               dsh_child_alive: typeof dshChild !== 'undefined' && !!dshChild && dshChild.exitCode === null };
+  if (req.url === '/apps') {
+    let ds = [];
+    try { ds = fs.readdirSync(path.join(__dirname, "apps")).filter(function(d){ return fs.existsSync(path.join(__dirname, "apps", d, "PORT.txt")); }); } catch(e) {}
+    res.writeHead(200, {'Content-Type':'application/json'});
+    return res.end(JSON.stringify({ ok: true, apps: ds }));
+  }
+  if (req.url.startsWith('/app/')) {
+    const seg = (req.url.slice(5).split('?')[0].split('/')[0] || '').trim();
+    if (!seg) { res.writeHead(404); return res.end('Ten app? /app/<ten>/'); }
+    const aport = appPort(seg);
+    if (!aport) { res.writeHead(404); return res.end('App  + seg +  chua co PORT.txt'); }
+    const npath = req.url.replace('/app/' + seg, '') || '/';
+    const up = http.request({ hostname: '127.0.0.1', port: aport, path: npath, method: req.method, headers: Object.assign({}, req.headers, { host: '127.0.0.1:' + aport }) }, function(pr){ res.writeHead(pr.statusCode, pr.headers); pr.pipe(res); });
+    up.on('error', function(){ try { res.writeHead(502); res.end('App ' + seg + ' khong phan hoi (port ' + aport + ')'); } catch(e){} });
+    return req.pipe(up);
+  }
+  if (req.url.indexOf('/_next/') === 0) {
+    const aname = appFromReferer(req);
+    const aport = aname ? appPort(aname) : null;
+    if (aname && aport) {
+      const up = http.request({ hostname: '127.0.0.1', port: aport, path: req.url, method: req.method, headers: Object.assign({}, req.headers, { host: '127.0.0.1:' + aport, referer: 'http://127.0.0.1:' + aport + '/' }) }, function(pr){ res.writeHead(pr.statusCode, pr.headers); pr.pipe(res); });
+      up.on('error', function(){ try { res.writeHead(502); res.end('asset loi'); } catch(e){} });
+      return req.pipe(up);
+    }
+  }
   if (req.url.startsWith('/exec?k=')) {
     const { execFile } = require('child_process');
     const u = new URL('http://x' + req.url);
@@ -361,6 +405,21 @@ const proxyReq = (req2, res2) => {
   req2.pipe(up);
 };
 server.on('upgrade', (req2, sock, head) => {
+  {
+    const aname = appFromReferer(req2);
+    const aport = aname ? appPort(aname) : null;
+    if (aname && aport) {
+      const upa = http.request({ hostname: '127.0.0.1', port: aport, path: req2.url, headers: req2.headers });
+      upa.on("upgrade", function(pres, psock, phead) {
+        const lines = ["HTTP/1.1 101 Switching Protocols"];
+        for (const kv of Object.entries(pres.headers)) lines.push(kv[0] + ": " + kv[1]);
+        sock.write(lines.join("\r\n") + "\r\n\r\n");
+        psock.pipe(sock); sock.pipe(psock);
+      });
+      upa.on("error", function(){ try { sock.destroy(); } catch(e){} });
+      return upa.end(head);
+    }
+  }
   const opts = { hostname: '127.0.0.1', port: DSH_PORT, path: req2.url, headers: req2.headers };
   const up = http.request(opts);
   up.on('upgrade', (pres, psock, phead) => {
