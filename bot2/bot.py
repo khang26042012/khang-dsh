@@ -96,6 +96,7 @@ MOI TRUONG:
 - Du an frontend: /home/container/cloner - Next.js 15 App Router + TypeScript + Tailwind + shadcn/ui.
 - TUYET DOI khong chay lenh nang tren may chu Minecraft (KhangSMP/KhangSMP2 co nguoi choi)! Moi thao tac chi trong /home/container.
 - Port web cloner la 30008. Khong dung 26184 (relay) va 3080 (dsh).
+- Proxy VN free (bot2/vnproxy.py): 'python3 /home/container/bot2/vnproxy.py harvest' roi 'check' de lam tuoi; 'get' in 1 proxy song tu xoay; 'status' xem pool. Can di mang qua IP VN thi curl -x http://<proxy> ...
 - RAM chung ~4.5GB: npm install lon nen them NODE_OPTIONS=--max-old-space-size=3072.
 
 PHONG CACH: tieng Viet, dan thuc te, khong dai dong. Khi nhan anh: phan tich noi dung anh truoc khi hanh dong."""
