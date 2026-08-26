@@ -29,7 +29,7 @@ MV       = ENV.get('MODEL_VISION', MODEL)
 RELAY    = ENV.get('RELAY_URL', 'http://127.0.0.1:26184')
 EXEC_K   = ENV.get('EXEC_SECRET', '')
 WORKDIR  = '/home/container'
-MAX_STEPS     = int(ENV.get('MAX_STEPS', '10'))
+MAX_STEPS     = int(ENV.get('MAX_STEPS', '14'))
 MAX_TOKENS    = int(ENV.get('MAX_TOKENS', '16384'))
 # ---------- API ROTATION POOL ----------
 POOL_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'api_pool.json')
@@ -113,6 +113,7 @@ QUY TAC TAO APP MOI + RESET/DEPLOY RIENG LE:
 - RESET RIENG 1 app (khong anh huong app khac): kill $(cat run.pid) roi chay lai lenh start o tren.
 - Deploy lai sau khi sua code production: build lai roi kill+start nhu tren. Xem loi: tail -40 app.log. Kiem tra song: curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:<port>
 - Cac dich vu he thong (khong phai app): reset qua http://127.0.0.1:26184/svc-restart?k=<secret>&name=bot|bot2|gw|app|dsh|all - tung cai rieng le.
+- TRAO DOI CHAT: loi noi cuoi cung TOI DA ~15 dong, chi tom tat da lam gi / file o dau / buoc tiep theo. CAM dan code dai vao chat - moi code deu phai write_file truc tiep len host. Neu nguoi dung muon xem: doc tung doan nho bang read_file hoac bao path de ho tu xem.
 PHONG CACH: tieng Viet, dan thuc te, khong dai dong. Khi nhan anh: phan tich noi dung anh truoc khi hanh dong."""
 
 history = defaultdict(lambda: deque(maxlen=16))
@@ -575,16 +576,13 @@ async def on_message(message):
             pass
     answer = await run_agent(message.channel.id, content, progress, stream_edit)
     ans = str(answer)
-    if len(ans) <= 1900:
-        try:
-            await placeholder.edit(content=ans)
-        except Exception:
-            await message.reply(ans[:1900])
-    else:
-        await placeholder.edit(content=ans[:1900])
-        for i in range(1900, len(ans), 1900):
-            await message.channel.send(ans[i:i+1900])
-
+    # TRIET LY MOI: khong dan code dai vao chat - code da duoc ghi file qua tool
+    if len(ans) > 1200:
+        ans = ans[:1150] + chr(10) + "...(da tom tat - code nam tren host, xem bang read_file)"
+    try:
+        await placeholder.edit(content=ans)
+    except Exception:
+        await message.reply(ans[:1900])
 @tree.command(name='ping', description='Do tre bot')
 async def ping_cmd(inter):
     await inter.response.send_message('Pong! %sms' % round(bot.latency * 1000))
