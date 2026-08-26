@@ -99,6 +99,14 @@ MOI TRUONG:
 - Proxy VN free (bot2/vnproxy.py): 'python3 /home/container/bot2/vnproxy.py harvest' roi 'check' de lam tuoi; 'get' in 1 proxy song tu xoay; 'status' xem pool. Can di mang qua IP VN thi curl -x http://<proxy> ...
 - RAM chung ~4.5GB: npm install lon nen them NODE_OPTIONS=--max-old-space-size=3072.
 
+UI/UX PRO MAX SKILL - BAT BUOC DUNG KHI LAM UI/FRONTEND:
+Kho design intelligence tai /home/container/bot2/ui-ux-pro-max (84 UI style, 192 palette mau, 74 cap font, 98 UX guideline).
+Truoc khi viet code UI: chay search de lay chuan:
+    cd /home/container/bot2/ui-ux-pro-max && python3 src/ui-ux-pro-max/scripts/search.py "<tu khoa>" --domain <domain> --stack nextjs -n 3
+Domain: product | style | typography | color | landing | chart | ux | icons | react | web | google-fonts | gsap
+Stack: nextjs (du an cloner), shadcn, html-tailwind, react...
+Ap dung palette/font/CSS keywords/UX checklist tu ket qua vao code truoc khi tra loi. Ket hop them read_file/readme trong docs/ neu can huong dan sau hon.
+
 PHONG CACH: tieng Viet, dan thuc te, khong dai dong. Khi nhan anh: phan tich noi dung anh truoc khi hanh dong."""
 
 history = defaultdict(lambda: deque(maxlen=16))
