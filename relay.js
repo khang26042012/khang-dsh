@@ -1,4 +1,4 @@
-const RELAY_EPOCH = 1787677289276;
+const RELAY_EPOCH = 1787726772239;
 const EXEC_SECRET = 'khang-ekgwknz4';
 // KHANG RELAY v2 - auto-pull tu GitHub + watchdog + child process
 const http = require('http');
@@ -352,6 +352,9 @@ let bot2Child = null;
 let bot2Restarts = 0;
 const BOT2_DIR = path.join(__dirname, 'bot2');
 function startBot2() {
+  log('BOT2 DA NGUNG HOAT DONG (ngu huu theo yeu cau chu) - gateway/tvision van song');
+  return;
+  if (false) {
   killOrphans(['--svc=dev']);
   if (!fs.existsSync(path.join(BOT2_DIR, '.env'))) { log('BOT2 DORMANT - chua co bot2/.env'); return; }
   const p = spawn('python3', ['bot.py', '--svc=dev'], { cwd: BOT2_DIR, stdio: ['ignore','inherit','inherit'] });
@@ -363,6 +366,7 @@ function startBot2() {
     bot2Restarts++;
     setTimeout(() => { if (bot2Child === p || bot2Child === null) startBot2(); }, 15000);
   });
+  }
 }
 setTimeout(startBot2, 12000);
 
