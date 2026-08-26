@@ -31,6 +31,40 @@ EXEC_K   = ENV.get('EXEC_SECRET', '')
 WORKDIR  = '/home/container'
 MAX_STEPS     = int(ENV.get('MAX_STEPS', '10'))
 MAX_TOKENS    = int(ENV.get('MAX_TOKENS', '16384'))
+# ---------- API ROTATION POOL ----------
+POOL_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'api_pool.json')
+
+def _default_pool():
+    return [{'name': 'env-chinh', 'base': API_BASE, 'key': API_KEY, 'model': MODEL, 'vision': MV}]
+
+def load_pool():
+    try:
+        data = json.loads(Path(POOL_FILE).read_text(encoding='utf-8'))
+        provs = [x for x in data.get('providers', []) if x.get('base') and x.get('model')]
+        if provs:
+            return provs, int(data.get('active_index', 0))
+    except Exception:
+        pass
+    d = _default_pool()
+    return d, 0
+
+_lp, _li = load_pool()
+POOL = _lp
+PSTATE = {}
+ACTIVE = {'i': max(0, min(_li, len(_lp) - 1))}
+COOLDOWN_S = 90
+
+def st(name):
+    return PSTATE.setdefault(name, {'fails': 0, 'ok': 0, 'cool_until': 0.0, 'last_err': ''})
+
+def ordered_provs(want_img=False):
+    n = len(POOL)
+    lst = [POOL[(ACTIVE['i'] + k) % n] for k in range(n)]
+    if want_img:
+        cap = [x for x in lst if x.get('vision')]
+        noc = [x for x in lst if not x.get('vision')]
+        lst = cap + noc
+    return lst
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -126,54 +160,78 @@ def _has_image(messages):
                     return True
     return False
 
-async def llm_once(messages):
-    """Mot lan goi API - tra (text, err). Khong retry o day."""
+async def llm_once(p, messages):
+    model = (p.get('vision') or p['model']) if _has_image(messages) else p['model']
     timeout = aiohttp.ClientTimeout(total=300)
     async with aiohttp.ClientSession(timeout=timeout) as ses:
-        async with ses.post(API_BASE + '/chat/completions',
-                            headers={'Authorization': 'Bearer ' + API_KEY, 'Content-Type': 'application/json'},
-                            json={'model': (MV if _has_image(messages) else MODEL),
-                                  'messages': messages, 'max_tokens': MAX_TOKENS}) as r:
+        async with ses.post(p['base'].rstrip('/') + '/chat/completions',
+                            headers={'Authorization': 'Bearer ' + p.get('key', ''), 'Content-Type': 'application/json'},
+                            json={'model': model, 'messages': messages, 'max_tokens': MAX_TOKENS}) as r:
             raw = await r.text()
     sse = collect_sse(raw)
     if sse.strip():
-        return sse, None
+        return sse
     rj = extract_first_json(raw)
     if not rj:
-        return None, '[Router tra body loi] ' + raw[:150]
+        raise RuntimeError('[body loi] ' + raw[:120])
     data = json.loads(rj)
     if isinstance(data, dict) and data.get('error'):
         err = data['error']
         em = err.get('message', '') if isinstance(err, dict) else str(err)
-        return None, em[:250]
+        raise RuntimeError(em[:250])
     choice = (data.get('choices') or [{}])[0]
     m = choice.get('message', {})
     c = m.get('content')
     if not c or not str(c).strip():
         c = m.get('reasoning') or m.get('reasoning_content') or ''
     if not str(c).strip():
-        return None, '(tra loi rong)'
-    return str(c), None
+        raise RuntimeError('tra loi rong')
+    return str(c)
+
+def is_rate(err):
+    low_e = err.lower()
+    return ('rate' in low_e) or ('limit' in low_e) or ('429' in low_e) or ('quota' in low_e)
 
 async def call_llm(messages):
-    """Goi API co RETRY + SLEEP backoff mu: 3s -> 8s -> 20s khi loi/429."""
-    waits = [0, 3, 8, 20]
-    last_err = ''
-    for attempt, w in enumerate(waits):
-        if w:
-            log.info('retry %ds sau loi: %s', w, last_err[:80])
-            await asyncio.sleep(w)
-        txt, err = await llm_once(messages)
-        if txt is not None:
-            return txt
-        last_err = err or ''
-        low = last_err.lower()
-        if 'rate' in low or 'limit' in low or '429' in low:
+    want_img = _has_image(messages)
+    errs = []
+    for p in ordered_provs(want_img):
+        s = st(p['name'])
+        if time.time() < s['cool_until']:
             continue
-        if attempt >= 1:
-            break
-    return '[Loi router sau retry] ' + last_err[:200]
+        err = ''
+        for attempt in range(2):
+            try:
+                txt = await llm_once(p, messages)
+                s['ok'] += 1
+                s['fails'] = 0
+                s['last_err'] = ''
+                ACTIVE['i'] = POOL.index(p)
+                log.info('API[%s] OK (tong %d)', p['name'], s['ok'])
+                return txt
+            except Exception as e:
+                err = str(e)[:200]
+            s['fails'] += 1
+            s['last_err'] = err
+            if is_rate(err):
+                break
+            if attempt == 0:
+                await asyncio.sleep(3)
+        s['cool_until'] = time.time() + COOLDOWN_S
+        errs.append(p['name'] + ': ' + err[:80])
+        log.warning('API[%s] FAIL -> xoay tiep (%s)', p['name'], err[:80])
+    return '[Tat ca API deu loi] ' + ' | '.join(errs)[:300]
 
+async def api_test_all():
+    res = []
+    for p in POOL:
+        t0 = time.time()
+        try:
+            txt = await llm_once(p, [{'role': 'user', 'content': 'Noi OK'}])
+            res.append({'name': p['name'], 'ok': True, 'ms': int((time.time() - t0) * 1000), 'sample': txt[:40]})
+        except Exception as e:
+            res.append({'name': p['name'], 'ok': False, 'ms': int((time.time() - t0) * 1000), 'err': str(e)[:80]})
+    return res
 # ---------- TOOL EXECUTOR ----------
 ALLOW_BINS = {'python3','node','npx','npm','git','ls','cat','grep','sed','find','touch','mkdir','cp','mv','tar','echo','curl','chmod','pip3'}
 def _safe_cmd(cmd):
@@ -293,7 +351,7 @@ def help_embed():
     e.add_field(name='Tools', value='run_cmd | read_file | write_file | sleep (tu goi khi can)', inline=False)
     e.add_field(name='Anh', value='Gui anh kem cau hoi - tu dong chuyen model vision', inline=False)
     e.add_field(name='!status / !reset <ten>', value='Trang thai host / reset rieng le (Admin)', inline=True)
-    e.add_field(name='!clear / !auto on|off / !ping', value='Quan ly kenh', inline=True)
+    e.add_field(name='!clear | !auto | !api (xoay API)', value='Quan ly kenh', inline=True)
     return e
 
 async def relay_restart(name):
@@ -353,6 +411,47 @@ async def on_message(message):
     if low == 'clear':
         history[message.channel.id].clear()
         await message.reply('Da xoa nho kenh nay.'); return
+    if low == 'api':
+        lines = ['**API Pool - ' + str(len(POOL)) + ' nha cung cap**']
+        for idx, pp in enumerate(POOL):
+            ss = st(pp['name'])
+            mark = 'TRIET-LUC-' if idx == ACTIVE['i'] else '-'
+            cool = max(0, int(ss['cool_until'] - time.time()))
+            extra = (' | cool:' + str(cool) + 's') if cool else ''
+            lines.append(mark + ' ' + pp['name'] + ' [' + pp['model'] + '] ok:' + str(ss['ok']) + ' fail:' + str(ss['fails']) + extra)
+        lines.append('Lenh: !api next | !api use <ten> | !api test | !api reload')
+        await message.reply(chr(10).join(lines))
+        return
+    if low.startswith('api next'):
+        ACTIVE['i'] = (ACTIVE['i'] + 1) % len(POOL)
+        await message.reply('Chuyen sang: ' + POOL[ACTIVE['i']]['name'])
+        return
+    if low.startswith('api use'):
+        ten = stripped.split()[2] if len(stripped.split()) > 2 else ''
+        vitri = next((k for k, pp in enumerate(POOL) if pp['name'] == ten), -1)
+        if vitri == -1:
+            await message.reply('Khong thay. Ten hop le: ' + ', '.join(x['name'] for x in POOL))
+        else:
+            ACTIVE['i'] = vitri
+            await message.reply('Da chon: ' + ten)
+        return
+    if low == 'api test':
+        async with message.channel.typing():
+            ketqua = await api_test_all()
+        rows = ['**Test toan bo API:**']
+        for kk in ketqua:
+            icon = 'OK' if kk['ok'] else 'FAIL'
+            chi_tiet = kk.get('sample', '') if kk['ok'] else kk.get('err', '')
+            rows.append(icon + ' ' + kk['name'] + ' (' + str(kk['ms']) + 'ms) ' + chi_tiet[:60])
+        await message.reply(chr(10).join(rows))
+        return
+    if low == 'api reload':
+        moi, vi = load_pool()
+        POOL[:] = moi
+        PSTATE.clear()
+        ACTIVE['i'] = max(0, min(vi, len(moi) - 1))
+        await message.reply('Reload xong: ' + str(len(POOL)) + ' provider, dang dung: ' + POOL[ACTIVE['i']]['name'])
+        return
     if low.startswith('auto'):
         parts_ = stripped.split()
         arg = parts_[1].lower() if len(parts_) > 1 else ''
