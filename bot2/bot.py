@@ -73,6 +73,26 @@ def build_messages(cid, user_content):
     msgs.append({"role": "user", "content": user_content})
     return msgs
 
+def collect_sse(txt):
+    total = []
+    for line in txt.splitlines():
+        line = line.strip()
+        if not line.startswith('data:'):
+            continue
+        payload = line[5:].strip()
+        if not payload or payload == '[DONE]':
+            continue
+        try:
+            obj = json.loads(payload)
+        except Exception:
+            continue
+        for ch in obj.get('choices') or []:
+            delta = ch.get('delta') or {}
+            piece = delta.get('content')
+            if piece:
+                total.append(piece)
+    return ''.join(total)
+
 def extract_first_json(txt):
     DQ = chr(34)
     BS = chr(92)
@@ -119,6 +139,9 @@ async def call_llm(messages):
                                 headers={'Authorization': 'Bearer ' + API_KEY, 'Content-Type': 'application/json'},
                                 json={'model': (MV if _has_image(messages) else MODEL), 'messages': messages}) as r:
                 raw = await r.text()
+        sse_text = collect_sse(raw)
+        if sse_text.strip():
+            return sse_text
         raw_json = extract_first_json(raw)
         if not raw_json:
             return '[Router tra body loi] ' + raw[:200]
