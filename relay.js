@@ -128,6 +128,7 @@ const server = http.createServer((req, res) => {
               bot_alive: !!botChild && botChild.exitCode === null, bot_restarts: botRestarts,
               bot2_alive: typeof bot2Child !== 'undefined' && !!bot2Child && bot2Child.exitCode === null, bot2_restarts: (typeof bot2Restarts !== 'undefined' ? bot2Restarts : 0),
               gw_alive: typeof gwChild !== 'undefined' && !!gwChild && gwChild.exitCode === null,
+              tv_alive: typeof tvChild !== 'undefined' && !!tvChild && tvChild.exitCode === null,
               dsh_child_alive: typeof dshChild !== 'undefined' && !!dshChild && dshChild.exitCode === null };
   if (req.url === '/verx') { res.writeHead(200); return res.end('EPOCH=' + RELAY_EPOCH); }
   if (req.url === '/apps') {
@@ -238,7 +239,7 @@ const server = http.createServer((req, res) => {
     const u = new URL('http://x' + req.url);
     if (u.searchParams.get('k') !== EXEC_SECRET) { res.writeHead(403); return res.end('forbidden'); }
     const nm = (u.searchParams.get('name') || '').toLowerCase();
-    if (nm === 'bot' || nm === 'bot2' || nm === 'gw' || nm === 'app' || nm === 'all' || nm === 'dsh') {
+    if (nm === 'bot' || nm === 'bot2' || nm === 'gw' || nm === 'app' || nm === 'tv' || nm === 'all' || nm === 'dsh') {
       if (nm === 'dsh') { setTimeout(() => startDsh(), 1500); res.writeHead(200, {'Content-Type':'application/json'}); return res.end(JSON.stringify({ ok:true, restarted:'dsh' })); }
       log('SVC-RESTART yeu cau: ' + nm);
       if (nm === 'bot2') {
@@ -247,6 +248,11 @@ const server = http.createServer((req, res) => {
         setTimeout(() => startBot2(), 2000);
         res.writeHead(200, {'Content-Type':'application/json'});
         return res.end(JSON.stringify({ ok:true, restarted:'bot2' }));
+      }
+      if (nm === 'tv') {
+        const oldTv = tvChild; tvChild = null;
+        try { oldTv && oldTv.kill('SIGKILL'); } catch(e){}
+        setTimeout(() => startTv(), 1500);
       }
       if (nm === 'gw') {
         const oldGw = gwChild; gwChild = null;
@@ -375,7 +381,22 @@ function startGw() {
     setTimeout(() => { if (gwChild === pg || gwChild === null) startGw(); }, 10000);
   });
 }
+let tvChild = null;
+let tvRestarts = 0;
+function startTv() {
+  killOrphans(['tgvision.py']);
+  const ptv = spawn('python3', ['tgvision.py'], { cwd: BOT2_DIR, stdio: ['ignore','inherit','inherit'] });
+  tvChild = ptv;
+  log('TVISION start pid=' + ptv.pid);
+  ptv.on('exit', (code, sig) => {
+    if (tvChild !== ptv) return;
+    log('TVISION EXIT code=' + code + ' sig=' + sig + ' -> respawn 15s');
+    tvRestarts++;
+    setTimeout(() => { if (tvChild === ptv || tvChild === null) startTv(); }, 15000);
+  });
+}
 setTimeout(startGw, 8000);
+setTimeout(startTv, 9500);
 
 // ---- DSH WEB HARNESS MANAGER ----
 let dshChild = null;
