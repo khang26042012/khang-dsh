@@ -107,6 +107,12 @@ Domain: product | style | typography | color | landing | chart | ux | icons | re
 Stack: nextjs (du an cloner), shadcn, html-tailwind, react...
 Ap dung palette/font/CSS keywords/UX checklist tu ket qua vao code truoc khi tra loi. Ket hop them read_file/readme trong docs/ neu can huong dan sau hon.
 
+QUY TAC TAO APP MOI + RESET/DEPLOY RIENG LE:
+- App moi dat tai /home/container/apps/<ten>. Port rieng bat dau tu 30100 tang dan; ghi port vao apps/<ten>/PORT.txt.
+- Start app: cd vao thu muc app roi: nohup npm run dev -- -p <port> > app.log 2>&1 & echo $! > run.pid  (production thi npm run build truoc roi npm start -- -p <port>).
+- RESET RIENG 1 app (khong anh huong app khac): kill $(cat run.pid) roi chay lai lenh start o tren.
+- Deploy lai sau khi sua code production: build lai roi kill+start nhu tren. Xem loi: tail -40 app.log. Kiem tra song: curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:<port>
+- Cac dich vu he thong (khong phai app): reset qua http://127.0.0.1:26184/svc-restart?k=<secret>&name=bot|bot2|gw|app|dsh|all - tung cai rieng le.
 PHONG CACH: tieng Viet, dan thuc te, khong dai dong. Khi nhan anh: phan tich noi dung anh truoc khi hanh dong."""
 
 history = defaultdict(lambda: deque(maxlen=16))
@@ -231,6 +237,65 @@ async def call_llm(messages):
         log.warning('API[%s] FAIL -> xoay tiep (%s)', p['name'], err[:80])
     return '[Tat ca API deu loi] ' + ' | '.join(errs)[:300]
 
+async def llm_stream(messages, on_chunk):
+    """Goi API che do stream; goi on_chunk(text_day_du) nhieu lan de edit tin nhan live."""
+    cand = None
+    for x in ordered_provs(_has_image(messages)):
+        if time.time() >= st(x["name"])["cool_until"]:
+            cand = x
+            break
+    if cand is None:
+        cand = ordered_provs(False)[0]
+    model = (cand.get("vision") or cand["model"]) if _has_image(messages) else cand["model"]
+    acc = []
+    last_sent = [0, 0.0]
+    timeout = aiohttp.ClientTimeout(total=300)
+    async with aiohttp.ClientSession(timeout=timeout) as ses:
+        async with ses.post(cand["base"].rstrip("/") + "/chat/completions",
+                            headers={"Authorization": "Bearer " + cand.get("key", ""), "Content-Type": "application/json"},
+                            json={"model": model, "messages": messages, "max_tokens": MAX_TOKENS, "stream": True}) as r:
+            buf = ""
+            while True:
+                piece = await r.content.read(2048)
+                if not piece:
+                    break
+                buf += piece.decode("utf-8", "replace")
+                parts = buf.split(chr(10))
+                buf = parts.pop()
+                for line in parts:
+                    line = line.strip()
+                    if not line.startswith("data:"):
+                        continue
+                    pay = line[5:].strip()
+                    if not pay or pay == "[DONE]":
+                        continue
+                    try:
+                        obj = json.loads(pay)
+                        d = obj.get("choices", [{}])[0].get("delta", {}).get("content")
+                        if d:
+                            acc.append(d)
+                    except Exception:
+                        pass
+                now = "".join(acc)
+                if len(now) - last_sent[0] >= 48 and time.monotonic() - last_sent[1] > 1.1:
+                    last_sent[0] = len(now)
+                    last_sent[1] = time.monotonic()
+                    try:
+                        await on_chunk(now)
+                    except Exception:
+                        pass
+    final = "".join(acc)
+    ss = st(cand["name"])
+    ss["ok"] += 1
+    ss["fails"] = 0
+    try:
+        ACTIVE["i"] = POOL.index(cand)
+    except ValueError:
+        pass
+    if not final.strip():
+        return await call_llm(messages)
+    return final
+
 async def api_test_all():
     res = []
     for p in POOL:
@@ -314,31 +379,41 @@ def parse_tools(text):
     return calls
 
 # ---------- AGENT LOOP ----------
-async def run_agent(cid, user_content):
-    msgs = [{'role': 'system', 'content': SYSTEM_PROMPT}]
+async def run_agent(cid, user_content, progress=None, stream_edit=None):
+    msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
     msgs.extend(history[cid])
-    msgs.append({'role': 'user', 'content': user_content})
+    msgs.append({"role": "user", "content": user_content})
     final = None
     for step in range(MAX_STEPS):
-        reply = await call_llm(msgs)
+        if stream_edit:
+            try:
+                reply = await llm_stream(msgs, stream_edit)
+            except Exception:
+                reply = await call_llm(msgs)
+        else:
+            reply = await call_llm(msgs)
         calls = parse_tools(reply)
         if not calls:
             final = reply
             break
-        msgs.append({'role': 'assistant', 'content': reply})
+        if progress:
+            ten = ", ".join(c[0] for c in calls[:4])
+            try:
+                await progress("Buoc " + str(step + 1) + ": " + ten)
+            except Exception:
+                pass
+        msgs.append({"role": "assistant", "content": reply})
         feedback = []
         for name, args in calls[:4]:
             res = await asyncio.get_event_loop().run_in_executor(None, exec_tool, name, dict(args))
-            feedback.append('[KET QUA ' + name + '] ' + str(res))
+            feedback.append("[KET QUA " + name + "] " + str(res))
             log.info('step %d tool %s -> %d chars', step, name, len(str(res)))
-        msgs.append({'role': 'user', 'content': chr(10).join(feedback) + chr(10) + 'Tiep tuc: tra loi cuoi cung hoac goi tool ke tiep.'})
+        msgs.append({"role": "user", "content": chr(10).join(feedback) + chr(10) + "Tiep tuc: tra loi cuoi cung hoac goi tool ke tiep."})
     if final is None:
-        final = '(dung o buoc ' + str(MAX_STEPS) + ' - nhac "!tiep" de cho chay tiep)'
-    # Luu lich su rut gon (giu prefix on dinh de an cache)
-    history[cid].append({'role': 'user', 'content': str(user_content)[:800] if isinstance(user_content, str) else '(tin nhan kem anh)'})
-    history[cid].append({'role': 'assistant', 'content': str(final)[:2500]})
+        final = "(dung o buoc " + str(MAX_STEPS) + " - nhac lai de chay tiep)"
+    history[cid].append({"role": "user", "content": str(user_content)[:800] if isinstance(user_content, str) else "(tin nhan kem anh)"})
+    history[cid].append({"role": "assistant", "content": str(final)[:2500]})
     return final
-
 async def build_user_content(message, prompt):
     parts = []
     for att in message.attachments:
@@ -480,11 +555,35 @@ async def on_message(message):
     if not ((mentioned or ref_bot or is_dm) or (auto_reply[message.channel.id] and not mentions_other_bot)):
         return
     prompt = message.content.replace('<@%s>' % bot.user.id, '').strip() or 'Phan tich tin nhan nay.'
-    async with message.channel.typing():
-        content = await build_user_content(message, prompt)
-        answer = await run_agent(message.channel.id, content)
-    for i in range(0, len(str(answer)), 1900):
-        await message.reply(str(answer)[i:i+1900])
+    content = await build_user_content(message, prompt)
+    placeholder = await message.reply(chr(9203) + " Dang suy nghi...")
+    last_edit = [0.0]
+    async def stream_edit(txt):
+        now = time.monotonic()
+        if now - last_edit[0] < 1.15:
+            return
+        last_edit[0] = now
+        hien = txt if len(txt) <= 1700 else "..." + txt[-1700:]
+        try:
+            await placeholder.edit(content=chr(129504) + " " + hien)
+        except Exception:
+            pass
+    async def progress(line):
+        try:
+            await placeholder.edit(content=chr(128295) + " " + str(line)[:1700])
+        except Exception:
+            pass
+    answer = await run_agent(message.channel.id, content, progress, stream_edit)
+    ans = str(answer)
+    if len(ans) <= 1900:
+        try:
+            await placeholder.edit(content=ans)
+        except Exception:
+            await message.reply(ans[:1900])
+    else:
+        await placeholder.edit(content=ans[:1900])
+        for i in range(1900, len(ans), 1900):
+            await message.channel.send(ans[i:i+1900])
 
 @tree.command(name='ping', description='Do tre bot')
 async def ping_cmd(inter):
