@@ -118,6 +118,23 @@ PHONG CACH: tieng Viet, dan thuc te, khong dai dong. Khi nhan anh: phan tich noi
 
 history = defaultdict(lambda: deque(maxlen=16))
 auto_reply = defaultdict(lambda: True)
+HIST_FILE = Path(__file__).resolve().parent / "history.json"
+
+def save_history():
+    try:
+        HIST_FILE.write_text(json.dumps({str(k): list(v) for k, v in history.items()}, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+def load_history():
+    try:
+        d = json.loads(HIST_FILE.read_text(encoding="utf-8"))
+        for k, v in d.items():
+            history[int(k)] = deque(v, maxlen=14)
+    except Exception:
+        pass
+
+load_history()
 
 # ---------- HTTP / PARSE HELPERS ----------
 def extract_first_json(txt):
@@ -398,7 +415,12 @@ async def run_agent(cid, user_content, progress=None, stream_edit=None):
     msgs.extend(history[cid])
     msgs.append({"role": "user", "content": user_content})
     final = None
-    for step in range(MAX_STEPS):
+    step = 0
+    while True:
+        step += 1
+        if step > 120:
+            final = "(tam dung sau 120 buoc de tranh vong lap vo tan - nhac lai se chay tiep tu cho da)"
+            break
         if stream_edit:
             try:
                 reply = await llm_stream(msgs, stream_edit)
@@ -433,9 +455,10 @@ async def run_agent(cid, user_content, progress=None, stream_edit=None):
             log.info('step %d tool %s -> %d chars', step, name, len(str(res)))
         msgs.append({"role": "user", "content": chr(10).join(feedback) + chr(10) + "Tiep tuc: tra loi cuoi cung hoac goi tool ke tiep."})
     if final is None:
-        final = "(dung o buoc " + str(MAX_STEPS) + " - nhac lai de chay tiep)"
+        pass
     history[cid].append({"role": "user", "content": str(user_content)[:800] if isinstance(user_content, str) else "(tin nhan kem anh)"})
     history[cid].append({"role": "assistant", "content": str(final)[:2500]})
+    save_history()
     return final
 async def build_user_content(message, prompt):
     parts = []
