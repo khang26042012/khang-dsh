@@ -107,6 +107,7 @@ const server = http.createServer((req, res) => {
               child_alive: !!child && child.exitCode === null, restarts: restartCount,
               bot_alive: !!botChild && botChild.exitCode === null, bot_restarts: botRestarts,
               bot2_alive: typeof bot2Child !== 'undefined' && !!bot2Child && bot2Child.exitCode === null, bot2_restarts: (typeof bot2Restarts !== 'undefined' ? bot2Restarts : 0),
+              gw_alive: typeof gwChild !== 'undefined' && !!gwChild && gwChild.exitCode === null,
               dsh_child_alive: typeof dshChild !== 'undefined' && !!dshChild && dshChild.exitCode === null };
   if (req.url.startsWith('/exec?k=')) {
     const { execFile } = require('child_process');
@@ -191,7 +192,7 @@ const server = http.createServer((req, res) => {
     const u = new URL('http://x' + req.url);
     if (u.searchParams.get('k') !== EXEC_SECRET) { res.writeHead(403); return res.end('forbidden'); }
     const nm = (u.searchParams.get('name') || '').toLowerCase();
-    if (nm === 'bot' || nm === 'bot2' || nm === 'app' || nm === 'all' || nm === 'dsh') {
+    if (nm === 'bot' || nm === 'bot2' || nm === 'gw' || nm === 'app' || nm === 'all' || nm === 'dsh') {
       if (nm === 'dsh') { setTimeout(() => startDsh(), 1500); res.writeHead(200, {'Content-Type':'application/json'}); return res.end(JSON.stringify({ ok:true, restarted:'dsh' })); }
       log('SVC-RESTART yeu cau: ' + nm);
       if (nm === 'bot2') {
@@ -200,6 +201,13 @@ const server = http.createServer((req, res) => {
         setTimeout(() => startBot2(), 2000);
         res.writeHead(200, {'Content-Type':'application/json'});
         return res.end(JSON.stringify({ ok:true, restarted:'bot2' }));
+      }
+      if (nm === 'gw') {
+        const oldGw = gwChild; gwChild = null;
+        try { oldGw && oldGw.kill('SIGKILL'); } catch(e){}
+        setTimeout(() => startGw(), 1500);
+        res.writeHead(200, {'Content-Type':'application/json'});
+        return res.end(JSON.stringify({ ok:true, restarted:'gw' }));
       }
       if (nm === 'bot' || nm === 'all') {
         const oldBot = botChild; botChild = null;   // cam exit-handler tu respawn
@@ -305,6 +313,23 @@ function startBot2() {
   });
 }
 setTimeout(startBot2, 12000);
+
+// ---- API GATEWAY MANAGER (cong chung cho cac bot) ----
+let gwChild = null;
+const GW_DIR = path.join(__dirname, 'bot2');
+function startGw() {
+  killOrphans(['api_gateway.py']);
+  if (!fs.existsSync(path.join(GW_DIR, 'api_gateway.py'))) { log('GW khong co file - bo qua'); return; }
+  const pg = spawn('python3', ['api_gateway.py'], { cwd: GW_DIR, stdio: ['ignore','inherit','inherit'] });
+  gwChild = pg;
+  log('GW start pid=' + pg.pid);
+  pg.on('exit', (code, sig) => {
+    if (gwChild !== pg) return;
+    log('GW EXIT code=' + code + ' -> respawn 10s');
+    setTimeout(() => { if (gwChild === pg || gwChild === null) startGw(); }, 10000);
+  });
+}
+setTimeout(startGw, 8000);
 
 // ---- DSH WEB HARNESS MANAGER ----
 let dshChild = null;
