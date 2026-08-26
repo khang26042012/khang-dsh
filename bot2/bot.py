@@ -137,7 +137,7 @@ async def call_llm(messages):
         async with aiohttp.ClientSession(timeout=timeout) as ses:
             async with ses.post(API_BASE + '/chat/completions',
                                 headers={'Authorization': 'Bearer ' + API_KEY, 'Content-Type': 'application/json'},
-                                json={'model': (MV if _has_image(messages) else MODEL), 'messages': messages}) as r:
+                                json={'model': (MV if _has_image(messages) else MODEL), 'messages': messages, 'max_tokens': 16384}) as r:
                 raw = await r.text()
         sse_text = collect_sse(raw)
         if sse_text.strip():
