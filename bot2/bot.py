@@ -357,6 +357,19 @@ def exec_tool(name, args):
     except Exception as e:
         return '[LOI TOOL] ' + str(e)[:200]
 
+def lam_sach(text):
+    """Bo het khoi <tool>...</tool> khoi chuoi hien thi."""
+    tag_a = "<tool>"
+    tag_b = "</tool>"
+    out = text
+    while tag_a in out and tag_b in out:
+        i = out.find(tag_a)
+        j = out.find(tag_b, i)
+        if j == -1:
+            break
+        out = out[:i] + out[j + len(tag_b):]
+    return out.strip()
+
 def parse_tools(text):
     calls = []
     tag_a = '<tool>'
@@ -395,7 +408,16 @@ async def run_agent(cid, user_content, progress=None, stream_edit=None):
             reply = await call_llm(msgs)
         calls = parse_tools(reply)
         if not calls:
-            final = reply
+            if "<tool>" in reply and step < MAX_STEPS - 1:
+                msgs.append({"role": "assistant", "content": reply})
+                msgs.append({"role": "user", "content": "[HE THONG] Tool goi bi loi dinh dang JSON. Hay viet lai the <tool> dung chuan hoac tra loi thuong."})
+                if progress:
+                    try:
+                        await progress("Tool JSON loi - da yeu cau lam lai")
+                    except Exception:
+                        pass
+                continue
+            final = lam_sach(reply) or "(khong co noi dung)"
             break
         if progress:
             ten = ", ".join(c[0] for c in calls[:4])
